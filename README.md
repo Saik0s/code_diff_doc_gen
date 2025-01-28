@@ -12,6 +12,16 @@ How It Works:
 
 Purpose:
 A terminal-based solution for aligning LLM outputs with library versions through automated documentation and validation.
-
 use `instructor` library for structured output
+
+## Environment Variables
+
+To run this project, you will need to set up the following environment variables. These variables are used to configure the OpenAI API keys and model names for both evaluation and target models. Create a `.env.example` file in the project root with the following variables:
+
+- `EVAL_OPENAI_API_KEY`: OpenAI API key for evaluation.
+- `EVAL_OPENAI_BASE_URL`: OpenAI base URL for evaluation.
+- `EVAL_MODEL_NAME`: Model name for evaluation.
+- `TARGET_OPENAI_API_KEY`: OpenAI API key for the target model.
+- `TARGET_OPENAI_BASE_URL`: OpenAI base URL for the target model.
+- `TARGET_MODEL_NAME`: Model name for the target model.
 
