@@ -8,13 +8,14 @@
 - libcst for code parsing
 - typer for CLI
 - json module for state persistence
+- loguru for logging
+- rich for terminal UI and progress reporting
 
 ## Setup
 ```bash
 curl -LsSf https://astral.sh/uv/install.sh | sh
-uv venv && source .venv/bin/activate
-uv pip install -e ".[dev]"
-export OPENAI_API_KEY=your-key
+uv sync
+uv run code-diff-doc-gen --help
 ```
 
 ## Development
@@ -22,3 +23,11 @@ export OPENAI_API_KEY=your-key
 - Ruff linting
 - Pytest for core tests
 - Type hints required
+
+## Logging and UI
+- Structured logging with loguru
+- Rich progress bars and spinners
+- Color-coded output
+- Detailed operation tracking
+- Error tracebacks with syntax highlighting
+- Progress reporting for long-running operations
