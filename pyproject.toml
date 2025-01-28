@@ -1,7 +1,24 @@
 [project]
 name = "code-diff-doc-gen"
 version = "0.1.0"
-description = "Add your description here"
-readme = "README.md"
-requires-python = ">=3.11"
-dependencies = []
+dependencies = [
+    "instructor>=0.5.0",
+    "typer>=0.12.1",
+    "rich>=13.9.4",
+    "libcst>=1.3.0",
+    "openai>=1.12.0"
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0.0", "ruff>=0.2.1"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/code_diff_doc_gen"]
+
+[project.scripts]
+code-diff-doc-gen = "code_diff_doc_gen.cli:main"
+

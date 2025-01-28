@@ -1,14 +1,14 @@
 # Progress
 
 ## Done
-- Initial planning
-- Core structure defined
-- Tech stack selected
-- State persistence and LLM scoring planned
+- Initial planning and documentation
+- Core structure defined and documented
+- Tech stack selected and documented
+- State persistence and LLM scoring planned and documented
+- Basic project setup (files, dependencies, CLI structure, state management setup)
 
 ## In Progress
-- Project setup planning
-- Implementation strategy
+- Fixing CLI execution and implementing core pipeline
 
 ## Next
 1. Core Setup
@@ -29,6 +29,6 @@
    - [ ] Error handling
 
 ## Status
-- Phase: Planning
-- Progress: 8%
-- Focus: Detailed Planning
+- Phase: Initial Setup and Core Pipeline
+- Progress: 15%
+- Focus: CLI Execution and Core Pipeline Implementation
