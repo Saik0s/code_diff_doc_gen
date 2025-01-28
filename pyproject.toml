@@ -6,11 +6,10 @@ dependencies = [
     "typer>=0.12.1",
     "rich>=13.9.4",
     "libcst>=1.3.0",
-    "openai>=1.12.0"
+    "openai>=1.12.0",
+    "python-dotenv>=1.0.0",
+    "loguru>=0.7.3",
 ]
-
-[project.optional-dependencies]
-dev = ["pytest>=8.0.0", "ruff>=0.2.1"]
 
 [build-system]
 requires = ["hatchling"]
@@ -18,6 +17,11 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/code_diff_doc_gen"]
+
+[tool.uv]
+dev-dependencies = [
+    "pytest>=8.3.4",
+]
 
 [project.scripts]
 code-diff-doc-gen = "code_diff_doc_gen.cli:main"

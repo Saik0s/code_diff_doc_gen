@@ -18,9 +18,9 @@
 
 ### LLM Operations
 - Code splitting (LLM1)
-- Description generation (LLM1)
-- Code regeneration (LLM2)
-- LLM Scoring (LLM1) - Score the quality of generated documentation.
+- Description generation (LLM1) - Uses `instructor` for structured output.
+- Code regeneration (LLM2) - Uses `instructor` for structured output.
+- LLM Scoring (LLM1) - Score the quality of generated documentation. Uses `instructor` for structured output.
 
 ### Documentation
 - Difference analysis

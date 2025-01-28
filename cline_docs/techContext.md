@@ -3,8 +3,8 @@
 ## Stack
 - Python 3.11+
 - uv for package management
-- OpenAI API for LLM
-- instructor for structured output
+- OpenAI API for LLM - via `openai` and `python-dotenv` libraries
+- instructor for structured output -  `instructor` library for structured LLM responses using Pydantic models
 - libcst for code parsing
 - typer for CLI
 - json module for state persistence
