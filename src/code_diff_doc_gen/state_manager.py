@@ -1,6 +1,7 @@
 # src/code_diff_doc_gen/state_manager.py
 import json
-from typing import Optional, TypedDict
+from typing import Optional, TypedDict, Any
+from pydantic import BaseModel
 
 
 class LLMScore(TypedDict):
@@ -26,6 +27,13 @@ class AppState(TypedDict):
     config: dict  # Will define config later
 
 
+class PydanticJSONEncoder(json.JSONEncoder):
+    def default(self, obj: Any) -> Any:
+        if isinstance(obj, BaseModel):
+            return obj.model_dump()
+        return super().default(obj)
+
+
 def load_state(state_file: str) -> Optional[AppState]:
     """Loads application state from a JSON file."""
     try:
@@ -42,7 +50,7 @@ def load_state(state_file: str) -> Optional[AppState]:
 def save_state(state: AppState, state_file: str) -> None:
     """Saves application state to a JSON file."""
     with open(state_file, "w") as f:
-        json.dump(state, f, indent=2)
+        json.dump(state, f, indent=2, cls=PydanticJSONEncoder)
 
 
 def create_initial_state() -> AppState:
