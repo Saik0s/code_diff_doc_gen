@@ -9,9 +9,10 @@
 - `pyproject.toml` configured with dependencies and scripts
 - Virtual environment created and dependencies installed
 - Basic state loading logic implemented in `cli.py` with `--resume` flag
+- **CLI execution issues still pending (TypeError and argument passing)**
 
 ## Next Steps
-1. Fix CLI execution issues (resolve `TypeError` and ensure arguments are passed correctly)
+1. **Fix CLI execution issues (resolve `TypeError` and ensure arguments are passed correctly)**
 2. Implement core pipeline stages (`split`, `describe`, `regenerate`, `document`) in respective modules.
 3. Implement state persistence logic (saving and loading state at each pipeline stage).
 4. Implement LLM scoring prompt and integration in `scorer.py` and `llm.py`.
