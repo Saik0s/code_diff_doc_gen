@@ -1,25 +1,42 @@
 # src/code_diff_doc_gen/cli.py
 import typer
 from typing import Optional
-from . import state_manager, parser, llm, generator
+from pathlib import Path
+from code_diff_doc_gen import state_manager, parser, llm, generator
 from rich.console import Console
 from rich.progress import Progress, SpinnerColumn, TextColumn
+from rich.theme import Theme
 from loguru import logger
 
+# Configure Rich theme
+custom_theme = Theme(
+    {
+        "info": "cyan",
+        "warning": "yellow",
+        "error": "red bold",
+        "success": "green bold",
+    }
+)
+
 app = typer.Typer()
-STATE_FILE = "code_diff_doc_gen_state.json"  # Define state file name
-console = Console()  # Initialize rich console
+console = Console(theme=custom_theme)
+
+# Configure loguru
 logger.add(
     "app.log",
     rotation="500 MB",
     level="DEBUG",
     format="{time:YYYY-MM-DD HH:mm:ss} | {level} | {message}",
-)  # Basic loguru setup - will refine format later
+)
 
 
 @app.command()
-def main(
-    input_path: str,
+def process_code(
+    input_path: str = typer.Argument(..., help="Path to input code files"),
+    output_file: str = typer.Option(
+        "output.md", help="Path to output documentation file"
+    ),
+    state_file: str = typer.Option("state.json", help="Path to state file"),
     resume: Optional[bool] = typer.Option(
         False, "--resume", help="Resume from previous state if available"
     ),
@@ -27,177 +44,198 @@ def main(
     """
     Generates documentation for code changes.
     """
-    if resume:
-        loaded_state = state_manager.load_state(STATE_FILE)
-        if loaded_state:
-            console.print(
-                f"Resuming from previous state loaded from '{STATE_FILE}'", style="info"
-            )  # Rich console output
-            logger.info(
-                f"Resuming from previous state loaded from '{STATE_FILE}'"
-            )  # Loguru logging
-            state = loaded_state
+    try:
+        if resume:
+            loaded_state = state_manager.load_state(state_file)
+            if loaded_state:
+                console.print(
+                    f"[info]Resuming from previous state loaded from '{state_file}'[/info]"
+                )
+                logger.info(f"Resuming from previous state loaded from '{state_file}'")
+                state = loaded_state
+            else:
+                console.print(
+                    f"[warning]No valid state file found at '{state_file}'. Starting from initial state.[/warning]"
+                )
+                logger.warning(
+                    f"No valid state file found at '{state_file}'. Starting from initial state."
+                )
+                state = state_manager.create_initial_state()
         else:
-            console.print(
-                f"No valid state file found at '{STATE_FILE}'. Starting from initial state.",
-                style="warning",
-            )  # Rich console output
-            logger.warning(
-                f"No valid state file found at '{STATE_FILE}'. Starting from initial state."
-            )  # Loguru logging
             state = state_manager.create_initial_state()
-    else:
-        state = state_manager.create_initial_state()
-        console.print(
-            "Starting with a new initial state.", style="info"
-        )  # Rich console output
-        logger.info("Starting with a new initial state.")  # Loguru logging
+            console.print("[info]Starting with a new initial state.[/info]")
+            logger.info("Starting with a new initial state.")
 
-    state["input_path"] = input_path  # Update input path in state
-    state["current_stage"] = "input"  # Set current stage
+        state["input_path"] = input_path
+        state["output_file"] = output_file
+        state["current_stage"] = "input"
 
-    console.print(
-        f"Processing input path: [bold blue]{input_path}[/bold blue]"
-    )  # Rich console output
-    logger.info(f"Processing input path: {input_path}")  # Loguru logging
+        console.print(f"Processing input path: [bold blue]{input_path}[/bold blue]")
+        logger.info(f"Processing input path: {input_path}")
 
-    # 1. Parse Code
-    with Progress(
-        SpinnerColumn(), TextColumn("[bold magenta]{task.description}")
-    ) as progress:  # Rich progress context manager
-        parse_task = progress.add_task("Parsing code...")  # Rich progress task
-        logger.info("Parsing code...")  # Loguru logging
-        code = parser.parse_code(input_path)
-        progress.update(
-            parse_task, description="Code parsed.", advance=100
-        )  # Rich progress update
-        logger.info("Code parsed.")  # Loguru logging
-
-    # 2. Split Code
-    with Progress(
-        SpinnerColumn(), TextColumn("[bold magenta]{task.description}")
-    ) as progress:  # Rich progress context manager
-        split_task = progress.add_task("Splitting code...")  # Rich progress task
-        logger.info("Splitting code...")  # Loguru logging
-        split_code_result = llm.split_code_with_llm(code)
-        state["intermediate_results"][
-            "split_code"
-        ] = (
-            split_code_result.code_blocks
-        )  # Assuming code_blocks is the correct attribute
-        state["current_stage"] = "split"
-        progress.update(
-            split_task, description="Code split.", advance=100
-        )  # Rich progress update
-        logger.info("Code split.")  # Loguru logging
-
-    # 3. Describe Code Blocks
-    console.print(
-        "Describing code blocks...", style="bold magenta"
-    )  # Rich console output
-    logger.info("Describing code blocks...")  # Loguru logging
-    descriptions = []
-    if state["intermediate_results"]["split_code"]:
+        # 1. Parse Code
         with Progress(
             SpinnerColumn(), TextColumn("[bold magenta]{task.description}")
-        ) as progress:  # Rich progress context manager
-            describe_task = progress.add_task(
-                "Describing code blocks..."
-            )  # Rich progress task
-            logger.info("Describing code blocks...")  # Loguru logging
-            for code_block in state["intermediate_results"]["split_code"]:
-                description = llm.describe_code_block_with_llm(code_block.code)
-                descriptions.append(
-                    description
-                )  # Assuming description is the correct attribute
-                progress.update(
-                    describe_task,
-                    advance=100 / len(state["intermediate_results"]["split_code"]),
-                    description=f"Described block {len(descriptions)}/{len(state['intermediate_results']['split_code'])}...",
-                )  # Rich progress update for each block
+        ) as progress:
+            parse_task = progress.add_task("Parsing code files...")
+            logger.info("Parsing code files...")
+            parsed_files = parser.parse_code(input_path)
             progress.update(
-                describe_task, description="Code blocks described.", advance=100
-            )  # Rich progress update for task completion
-            logger.info("Code blocks described.")  # Loguru logging
-        state["intermediate_results"]["descriptions"] = descriptions
-        state["current_stage"] = "describe"
+                parse_task,
+                description=f"Parsed {len(parsed_files)} files.",
+                advance=100,
+            )
+            logger.info(f"Parsed {len(parsed_files)} files.")
 
-    state_manager.save_state(state, STATE_FILE)  # Save state after describe stage
-    console.print(
-        f"State saved to '{STATE_FILE}' after describe stage", style="bold green"
-    )  # Rich console output
-    logger.info(f"State saved to '{STATE_FILE}' after describe stage")  # Loguru logging
+        # Process each file
+        all_descriptions = []
+        all_regenerated_code = []
 
-    # 4. Regenerate Code from Descriptions
-    print(
-        "Regenerating code from descriptions..."
-    )  # Placeholder UI - will replace with rich
-    regenerated_code_blocks = []
-    if state["intermediate_results"]["descriptions"]:
-        for description in state["intermediate_results"]["descriptions"]:
-            regenerated_code = llm.regenerate_code_from_description_with_llm(
-                description.description
-            )  # Assuming description is the correct attribute
-            regenerated_code_blocks.append(regenerated_code)
-        state["intermediate_results"]["regenerated_code"] = regenerated_code_blocks
+        for file_path, code in parsed_files.items():
+            console.print(f"\nProcessing file: [bold blue]{file_path}[/bold blue]")
+            logger.info(f"Processing file: {file_path}")
+
+            # 2. Split Code
+            with Progress(
+                SpinnerColumn(), TextColumn("[bold magenta]{task.description}")
+            ) as progress:
+                split_task = progress.add_task("Splitting code...")
+                logger.info("Splitting code...")
+                split_code_result = llm.split_code_with_llm(code)
+                state["intermediate_results"][
+                    "split_code"
+                ] = split_code_result.code_blocks
+                state["current_stage"] = "split"
+                progress.update(split_task, description="Code split.", advance=100)
+                logger.info("Code split.")
+
+            # 3. Describe Code Blocks
+            console.print("[bold magenta]Describing code blocks...[/bold magenta]")
+            logger.info("Describing code blocks...")
+            descriptions = []
+            if state["intermediate_results"]["split_code"]:
+                with Progress(
+                    SpinnerColumn(), TextColumn("[bold magenta]{task.description}")
+                ) as progress:
+                    describe_task = progress.add_task("Describing code blocks...")
+                    for code_block in state["intermediate_results"]["split_code"]:
+                        description = llm.describe_code_block_with_llm(code_block.code)
+                        descriptions.append(description)
+                        progress.update(
+                            describe_task,
+                            advance=100
+                            / len(state["intermediate_results"]["split_code"]),
+                            description=f"Described block {len(descriptions)}/{len(state['intermediate_results']['split_code'])}...",
+                        )
+                    progress.update(
+                        describe_task, description="Code blocks described.", advance=100
+                    )
+                    logger.info("Code blocks described.")
+                all_descriptions.extend(descriptions)
+
+            # 4. Regenerate Code from Descriptions
+            console.print(
+                "[bold magenta]Regenerating code from descriptions...[/bold magenta]"
+            )
+            logger.info("Regenerating code from descriptions...")
+            regenerated_code_blocks = []
+            with Progress(
+                SpinnerColumn(), TextColumn("[bold magenta]{task.description}")
+            ) as progress:
+                regenerate_task = progress.add_task("Regenerating code...")
+                for description in descriptions:
+                    regenerated_code = llm.regenerate_code_from_description_with_llm(
+                        description.description
+                    )
+                    regenerated_code_blocks.append(regenerated_code)
+                    progress.update(
+                        regenerate_task,
+                        advance=100 / len(descriptions),
+                        description=f"Regenerated block {len(regenerated_code_blocks)}/{len(descriptions)}...",
+                    )
+                progress.update(
+                    regenerate_task, description="Code regenerated.", advance=100
+                )
+                logger.info("Code regenerated.")
+                all_regenerated_code.extend(regenerated_code_blocks)
+
+            state_manager.save_state(state, state_file)
+            logger.info(
+                f"State saved to '{state_file}' after processing file {file_path}"
+            )
+
+        # Update state with all processed files
+        state["intermediate_results"]["descriptions"] = all_descriptions
+        state["intermediate_results"]["regenerated_code"] = all_regenerated_code
         state["current_stage"] = "regenerate"
-    print(
-        "Code regenerated from descriptions."
-    )  # Placeholder UI - will replace with rich
 
-    state_manager.save_state(state, STATE_FILE)  # Save state after regenerate stage
-    print(f"State saved to '{STATE_FILE}' after regenerate stage")
+        # 5. Generate Documentation
+        console.print("[bold magenta]Generating documentation...[/bold magenta]")
+        logger.info("Generating documentation...")
+        with Progress(
+            SpinnerColumn(), TextColumn("[bold magenta]{task.description}")
+        ) as progress:
+            doc_task = progress.add_task("Generating documentation...")
+            documentation = generator.generate_documentation(
+                state["intermediate_results"]["split_code"],
+                state["intermediate_results"]["descriptions"],
+                state["intermediate_results"]["regenerated_code"],
+                state["intermediate_results"].get("diffs", []),
+            )
+            state["intermediate_results"]["documentation"] = documentation
+            state["current_stage"] = "document"
+            progress.update(
+                doc_task, description="Documentation generated.", advance=100
+            )
+            logger.info("Documentation generated.")
 
-    # 5. Generate Documentation
-    print("Generating documentation...")  # Placeholder UI - will replace with rich
-    if (
-        state["intermediate_results"]["split_code"]
-        and state["intermediate_results"]["descriptions"]
-        and state["intermediate_results"]["regenerated_code"]
-    ):
-        documentation = generator.generate_documentation(
-            state["intermediate_results"]["split_code"],
-            state["intermediate_results"]["descriptions"],
-            state["intermediate_results"]["regenerated_code"],
-            state["intermediate_results"]["diffs"],  # Diffs are not implemented yet
-        )
-        state["intermediate_results"]["documentation"] = documentation
-        state["current_stage"] = "document"
-    print("Documentation generated.")  # Placeholder UI - will replace with rich
+        # 6. Score Documentation with LLM
+        console.print("[bold magenta]Scoring documentation with LLM...[/bold magenta]")
+        logger.info("Scoring documentation with LLM...")
+        with Progress(
+            SpinnerColumn(), TextColumn("[bold magenta]{task.description}")
+        ) as progress:
+            score_task = progress.add_task("Scoring documentation...")
+            llm_score_result = llm.score_documentation_with_llm(documentation)
+            state["intermediate_results"]["llm_score"] = {
+                "score": llm_score_result.score,
+                "feedback": llm_score_result.feedback,
+                "improvement_suggestions": llm_score_result.improvement_suggestions,
+            }
+            state["current_stage"] = "llm_score"
+            progress.update(
+                score_task, description="Documentation scored.", advance=100
+            )
+            logger.info("Documentation scored.")
 
-    state_manager.save_state(state, STATE_FILE)  # Save state after document stage
-    print(f"State saved to '{STATE_FILE}' after documentation stage")
+        # Save final state
+        state_manager.save_state(state, state_file)
+        logger.info(f"Final state saved to '{state_file}'")
 
-    # 6. Score Documentation with LLM
-    print(
-        "Scoring documentation with LLM..."
-    )  # Placeholder UI - will replace with rich
-    if state["intermediate_results"]["documentation"]:
-        llm_score_result = llm.score_documentation_with_llm(
-            state["intermediate_results"]["documentation"]
-        )
-        state["intermediate_results"]["llm_score"] = {
-            "score": llm_score_result.score,
-            "feedback": llm_score_result.feedback,
-        }
-        state["current_stage"] = "llm_score"
-    print("Documentation scored.")  # Placeholder UI - will replace with rich
+        # Write documentation to output file
+        output_path = Path(output_file)
+        output_path.write_text(documentation)
+        console.print(f"\nDocumentation written to: [success]{output_file}[/success]")
+        logger.info(f"Documentation written to: {output_file}")
 
-    state_manager.save_state(state, STATE_FILE)  # Save state after LLM score stage
-    print(f"State saved to '{STATE_FILE}' after LLM score stage")
+        # Display score and feedback
+        console.print("\n[bold cyan]Documentation Score:[/bold cyan]")
+        console.print(f"Score: {llm_score_result.score}/10")
+        console.print("\n[bold cyan]Feedback:[/bold cyan]")
+        console.print(llm_score_result.feedback)
+        console.print("\n[bold cyan]Improvement Suggestions:[/bold cyan]")
+        for suggestion in llm_score_result.improvement_suggestions:
+            console.print(f"• {suggestion}")
 
-    # 7. Output Documentation (for now just print to console)
-    print("\nFinal Documentation:\n")  # Placeholder UI - will replace with rich
-    if state["intermediate_results"]["documentation"]:
-        print(state["intermediate_results"]["documentation"])
-        state["current_stage"] = "output"
-    print(
-        "\nDocumentation output completed."
-    )  # Placeholder UI - will replace with rich
+    except Exception as e:
+        logger.exception("An error occurred during execution")
+        console.print(f"[error]Error: {str(e)}[/error]")
+        raise typer.Exit(1)
 
-    state_manager.save_state(state, STATE_FILE)  # Save state after output stage
-    print(f"State saved to '{STATE_FILE}' after output stage")
+
+def main():
+    app()
 
 
 if __name__ == "__main__":
-    app()
+    main()
