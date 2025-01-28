@@ -12,3 +12,6 @@ How It Works:
 
 Purpose:
 A terminal-based solution for aligning LLM outputs with library versions through automated documentation and validation.
+
+use `instructor` library for structured output
+
