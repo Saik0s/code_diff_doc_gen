@@ -16,7 +16,7 @@ eval_client = instructor.patch(
         api_key=os.getenv("EVAL_OPENAI_API_KEY"),
         base_url=os.getenv("EVAL_OPENAI_BASE_URL", "https://api.openai.com/v1"),
     ),
-    mode=instructor.Mode.JSON,
+    mode=instructor.Mode.MD_JSON,
 )
 
 target_client = instructor.patch(
@@ -24,7 +24,7 @@ target_client = instructor.patch(
         api_key=os.getenv("TARGET_OPENAI_API_KEY"),
         base_url=os.getenv("TARGET_OPENAI_BASE_URL", "https://api.openai.com/v1"),
     ),
-    mode=instructor.Mode.JSON,
+    mode=instructor.Mode.MD_JSON,
 )
 
 
@@ -63,18 +63,23 @@ class DocumentationScore(BaseModel):
     )
 
 
-def split_code_with_llm(code: str) -> CodeSplitResult:
+def split_code_with_llm(
+    code: str, library_name: Optional[str] = None
+) -> CodeSplitResult:
     """Splits code into smaller blocks using LLM."""
+    lib_context = f"focusing on {library_name} usage" if library_name else ""
     prompt = f"""
     Please split the following Swift code into logical blocks. Each block should be a complete,
-    self-contained unit that represents a specific functionality or concept.
+    self-contained unit that represents a specific functionality or concept, {lib_context}.
 
     For each block, identify:
     1. The code itself
     2. The context/purpose of the block
-    3. Any key dependencies or frameworks used
+    3. Any key dependencies or frameworks used (IMPORTANT: Always mention {library_name} in the context if provided)
 
     Return the result as a JSON object with a 'code_blocks' array, where each block has:
+    IMPORTANT: Each code block MUST be at least 10 lines long to properly demonstrate library usage.
+    Combine related functionality into larger blocks rather than splitting too finely.
     - code: The actual code snippet
     - language: "swift"
     - context: A brief description of the block's purpose
@@ -85,7 +90,7 @@ def split_code_with_llm(code: str) -> CodeSplitResult:
     logger.debug("Splitting code with LLM")
     try:
         response = eval_client.chat.completions.create(
-            model=os.getenv("EVAL_MODEL_NAME", "gpt-4-turbo-preview"),
+            model=os.getenv("EVAL_MODEL_NAME"),
             response_model=CodeSplitResult,
             messages=[
                 {
@@ -106,10 +111,15 @@ def split_code_with_llm(code: str) -> CodeSplitResult:
         )
 
 
-def describe_code_block_with_llm(code_block: str) -> CodeDescription:
+def describe_code_block_with_llm(
+    code_block: str, library_name: Optional[str] = None
+) -> CodeDescription:
     """Generates a description for a code block using LLM."""
+    lib_context = (
+        f"focusing on how it uses the {library_name} library" if library_name else ""
+    )
     prompt = f"""
-    Please analyze the following Swift code block and provide:
+    Please analyze the following Swift code block {lib_context} and provide:
     1. A clear, concise description of its functionality
     2. Key components and patterns used (e.g., SwiftUI views, Combine publishers, TCA reducers)
     3. External dependencies and frameworks used
@@ -125,7 +135,7 @@ def describe_code_block_with_llm(code_block: str) -> CodeDescription:
     logger.debug("Describing code block with LLM")
     try:
         response = eval_client.chat.completions.create(
-            model=os.getenv("EVAL_MODEL_NAME", "gpt-4-turbo-preview"),
+            model=os.getenv("EVAL_MODEL_NAME"),
             response_model=CodeDescription,
             messages=[
                 {
@@ -147,11 +157,14 @@ def describe_code_block_with_llm(code_block: str) -> CodeDescription:
         )
 
 
-def regenerate_code_from_description_with_llm(description: str) -> CodeBlock:
+def regenerate_code_from_description_with_llm(
+    description: str, library_name: Optional[str] = None
+) -> CodeBlock:
     """Regenerates code from a description using LLM."""
+    lib_context = f"using the {library_name} library" if library_name else ""
     prompt = f"""
     Please regenerate Swift code based on the following description.
-    Focus on following Swift and SwiftUI best practices and patterns.
+    Focus on following Swift and SwiftUI best practices and patterns {lib_context}.
     Ensure the code is idiomatic Swift and follows the style of The Composable Architecture if relevant.
 
     Return the result as a JSON object with:
@@ -165,7 +178,7 @@ def regenerate_code_from_description_with_llm(description: str) -> CodeBlock:
     logger.debug("Regenerating code from description with LLM")
     try:
         response = target_client.chat.completions.create(
-            model=os.getenv("TARGET_MODEL_NAME", "gpt-4-turbo-preview"),
+            model=os.getenv("TARGET_MODEL_NAME"),
             response_model=CodeBlock,
             messages=[
                 {
@@ -177,6 +190,8 @@ def regenerate_code_from_description_with_llm(description: str) -> CodeBlock:
             temperature=0.2,
             max_tokens=2000,
         )
+        if response is None:
+            raise ValueError("No response from LLM")
         return response
     except Exception as e:
         logger.error(f"Error regenerating code: {str(e)}")

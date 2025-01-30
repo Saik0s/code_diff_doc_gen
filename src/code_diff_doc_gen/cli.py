@@ -40,6 +40,9 @@ def process_code(
     resume: Optional[bool] = typer.Option(
         False, "--resume", help="Resume from previous state if available"
     ),
+    library_name: Optional[str] = typer.Option(
+        None, "--library-name", help="Name of the library being documented"
+    ),
 ):
     """
     Generates documentation for code changes.
@@ -69,6 +72,7 @@ def process_code(
         state["input_path"] = input_path
         state["output_file"] = output_file
         state["current_stage"] = "input"
+        state["library_name"] = library_name
 
         console.print(f"Processing input path: [bold blue]{input_path}[/bold blue]")
         logger.info(f"Processing input path: {input_path}")
@@ -101,7 +105,7 @@ def process_code(
             ) as progress:
                 split_task = progress.add_task("Splitting code...")
                 logger.info("Splitting code...")
-                split_code_result = llm.split_code_with_llm(code)
+                split_code_result = llm.split_code_with_llm(code, library_name)
                 state["intermediate_results"][
                     "split_code"
                 ] = split_code_result.code_blocks
@@ -119,7 +123,9 @@ def process_code(
                 ) as progress:
                     describe_task = progress.add_task("Describing code blocks...")
                     for code_block in state["intermediate_results"]["split_code"]:
-                        description = llm.describe_code_block_with_llm(code_block.code)
+                        description = llm.describe_code_block_with_llm(
+                            code_block.code, library_name
+                        )
                         descriptions.append(description)
                         progress.update(
                             describe_task,
@@ -145,7 +151,7 @@ def process_code(
                 regenerate_task = progress.add_task("Regenerating code...")
                 for description in descriptions:
                     regenerated_code = llm.regenerate_code_from_description_with_llm(
-                        description.description
+                        description.description, library_name
                     )
                     regenerated_code_blocks.append(regenerated_code)
                     progress.update(
