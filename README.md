@@ -1,27 +1,48 @@
-Product Overview:
-A terminal app with a modern UI that generates documentation for updating language models' understanding of library versions.
+# CodeScribe
 
-How It Works:
-	1. Source file selection: provide path to files or folder
-	2. Code Splitting: LLM1 evaluates and splits code into meaningful pieces
-	3. Description Generation: LLM1 generates descriptions for each code piece
-	4. Code Regeneration: Target LLM2 regenerates code from descriptions
-	5. Documentation Creation: LLM1 criticises differences and compiles that into documentation doc
-	6. Validation Round: LLM2 generates code from descriptions again, but this time documentation is added to system prompt
-	7. Final Check: LLM1 performs evaluation of the result and performs steps 5-7 again if needed until result is satisfying
+Create a python script that:
+1. Takes source files as input
+2. Creates descriptions explaining what each file does
+3. Generates code from descriptions
+4. Creates difference examples between original and generated code
+5. Asks user if they want another generation attempt
+6. Repeats with improved system prompt
 
-Purpose:
-A terminal-based solution for aligning LLM outputs with library versions through automated documentation and validation.
-use `instructor` library for structured output
+## File Structure
+```
+.codescribe/
+  descriptions.toml       # file descriptions
+  prompts/
+    system_0.md          # base prompt
+    system_1.md          # base + round 1 examples
+    system_2.md          # base + rounds 1-2 examples
+  generated/
+    round_1/            # first generation attempt
+    round_2/            # second generation attempt
+```
 
-## Environment Variables
+## System Prompt Format
+Each `system_N.md` contains:
+1. Base instruction: "You are an expert in the detected language and frameworks. Generate code from the provided description."
+2. Code comparison blocks:
+```
+// Bad
+{generated_code}
 
-To run this project, you will need to set up the following environment variables. These variables are used to configure the OpenAI API keys and model names for both evaluation and target models. Create a `.env.example` file in the project root with the following variables:
+// Good
+{original_code}
+```
 
-- `EVAL_OPENAI_API_KEY`: OpenAI API key for evaluation.
-- `EVAL_OPENAI_BASE_URL`: OpenAI base URL for evaluation.
-- `EVAL_MODEL_NAME`: Model name for evaluation.
-- `TARGET_OPENAI_API_KEY`: OpenAI API key for the target model.
-- `TARGET_OPENAI_BASE_URL`: OpenAI base URL for the target model.
-- `TARGET_MODEL_NAME`: Model name for the target model.
+No additional text or explanations - just instruction and code blocks.
 
+## Process
+1. Create initial system prompt
+2. Generate code from descriptions
+3. Compare original vs generated
+4. Show differences to user
+5. If user wants another round:
+   - Add difference blocks to system prompt
+   - Generate new code
+   - Repeat from step 3
+
+Keep it simple - single script with core functions for each step.
