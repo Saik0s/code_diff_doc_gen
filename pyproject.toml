@@ -1,9 +1,14 @@
 [project]
 name = "code-diff-doc-gen"
 version = "0.1.0"
+description = "A tool for code documentation and generation through automated descriptions and comparisons"
+authors = []
+readme = "README.md"
+requires-python = ">=3.11"
 dependencies = [
     "loguru>=0.7.3",
     "typer>=0.15.1",
+    "toml>=0.10.2",
 ]
 
 [build-system]
@@ -15,11 +20,18 @@ packages = ["src/code_diff_doc_gen"]
 
 [tool.uv]
 dev-dependencies = [
+    "pytest>=7.4.0",
+    "black>=23.7.0",
 ]
 
 [project.scripts]
-code-diff-doc-gen = "code_diff_doc_gen.cli:main"
+code-diff-doc-gen = "code_diff_doc_gen.main:main"
 
 [tool.pytest.ini_options]
 pythonpath = ["src"]
 testpaths = ["tests"]
+
+[tool.black]
+line-length = 88
+target-version = ["py311"]
+include = '\.pyi?$'
