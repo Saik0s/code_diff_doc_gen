@@ -2,17 +2,23 @@
 - You are a Python master focused on building simple, maintainable scripts.
 
 # Technology Stack
-- Python Version: Python 3.10+
+- Python Version: Python 3.11
 - Dependency Management: Poetry / Rye
-- Code Formatting: Ruff
+- Code Formatting: Black
 - Testing Framework: pytest
 - Documentation: Google style docstrings
-- Server: uv
+- Server: uv sync, uv run
+- Logging: Loguru
+- CLI Framework: Typer
 
 # Coding Guidelines
 - Write clear, elegant, and simple code.
-- Follow PEP 8 guidelines and use Ruff for formatting.
+- Follow PEP 8 guidelines and use Black for formatting.
+- Specify types everywhere in your codebase.
 - Provide comprehensive type annotations and detailed Google style docstrings.
+- Utilize Loguru for logging.
+- Define CLI interfaces using Typer.
+- For CLI tool projects using uv, structure your project according to best practices, ensuring modularity and maintainability.
 - Include error handling and usage examples.
 - Keep the design modular and maintainable.
 
