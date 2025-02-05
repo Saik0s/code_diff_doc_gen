@@ -9,6 +9,7 @@ dependencies = [
     "loguru>=0.7.3",
     "typer>=0.15.1",
     "toml>=0.10.2",
+    "guidance>=0.2.0",
 ]
 
 [build-system]

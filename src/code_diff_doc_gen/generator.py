@@ -1,9 +1,10 @@
 """Code generator module for CodeScribe.
 
-Generates code from descriptions using system prompts.
+Generates code from descriptions using Guidance and system prompts.
 """
 
 from pathlib import Path
+import guidance
 from loguru import logger
 from typing import Optional
 
@@ -36,18 +37,45 @@ def read_system_prompt(round_num: int) -> str:
         raise
 
 
-def generate_code(description: str, prompt: str) -> str:
-    """Generate code from description using prompt.
+@guidance
+def generate_code(lm: guidance.models.Model, description: str, prompt: str) -> str:
+    """Generate code from description using Guidance.
 
     Args:
+        lm: Guidance language model to use
         description: Source code description
         prompt: System prompt to use
 
     Returns:
         Generated code
     """
-    # TODO: Implement actual code generation
-    # For now return placeholder
+    # Create Guidance program
+    program = guidance(
+        """
+    {{#system~}}
+    You are an expert in the detected language and frameworks. Generate code from the provided description.
+    {{prompt}}
+    {{~/system}}
+
+    {{#user~}}
+    Generate code for this description:
+    {{description}}
+    {{~/user}}
+
+    {{#assistant~}}
+    {{gen 'code' temperature=0 max_tokens=1000}}
+    {{~/assistant}}
+    """
+    )
+
+    # Run program
+    result = program(lm, description=description, prompt=prompt)
+
+    # Extract and clean generated code
+    code = result["code"].strip()
+    logger.debug(f"Generated code: {code}")
+
+    return code
     return "Generated code placeholder"
 
 

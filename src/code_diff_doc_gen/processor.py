@@ -1,12 +1,13 @@
 """File processor module for CodeScribe.
 
-Handles reading source files and creating descriptions.
+Handles reading source files and creating descriptions using Guidance.
 """
 
 from pathlib import Path
 import toml
+import guidance
 from loguru import logger
-from typing import Dict, Optional
+from typing import Dict
 
 
 def read_source_files(directory: str) -> Dict[str, str]:
@@ -45,17 +46,45 @@ def read_source_files(directory: str) -> Dict[str, str]:
     return files
 
 
-def create_description(content: str) -> str:
-    """Create description for source code.
+def create_description(content: str, lm: guidance.models.Model) -> str:
+    """Create description for source code using Guidance.
 
     Args:
         content: Source code content to describe
+        lm: Guidance language model to use
 
     Returns:
         Generated description of the code
     """
-    # TODO: Implement actual description generation
-    # For now return placeholder
+    # Create Guidance program
+    program = guidance(
+        """
+    {{#system~}}
+    You are an expert code analyzer. Describe the functionality of the provided code concisely.
+    Focus on what the code does, not how it does it.
+    {{~/system}}
+
+    {{#user~}}
+    Describe this code:
+    ```
+    {{code}}
+    ```
+    {{~/user}}
+
+    {{#assistant~}}
+    {{gen 'description' temperature=0 max_tokens=200}}
+    {{~/assistant}}
+    """
+    )
+
+    # Run program with content
+    result = program(lm, code=content)
+
+    # Extract and clean description
+    description = result["description"].strip()
+    logger.debug(f"Generated description: {description}")
+
+    return description
     return "Source code description placeholder"
 
 

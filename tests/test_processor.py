@@ -3,6 +3,8 @@
 import pytest
 import os
 from pathlib import Path
+from unittest.mock import MagicMock
+import guidance
 from code_diff_doc_gen import processor
 
 
@@ -40,6 +42,12 @@ def test_read_source_files_missing_dir() -> None:
 
 def test_create_description() -> None:
     """Test creating description from code."""
+    # Create mock model
+    mock_model = MagicMock()
+    mock_result = MagicMock()
+    mock_result.__getitem__.return_value = "Test description"
+    mock_model.return_value = mock_result
+
     code = """
     struct Counter {
         var count: Int = 0
@@ -50,9 +58,14 @@ def test_create_description() -> None:
     }
     """
 
-    description = processor.create_description(code)
+    description = processor.create_description(code, mock_model)
+
+    # Verify description
     assert isinstance(description, str)
-    assert len(description) > 0
+    assert description == "Test description"
+
+    # Verify model was called
+    assert mock_model.called
 
 
 def test_save_descriptions(tmp_path: Path) -> None:

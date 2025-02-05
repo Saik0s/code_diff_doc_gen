@@ -2,6 +2,8 @@
 
 import pytest
 from pathlib import Path
+from unittest.mock import MagicMock
+import guidance
 from code_diff_doc_gen import generator
 
 
@@ -41,12 +43,29 @@ def test_read_system_prompt_missing() -> None:
 
 def test_generate_code() -> None:
     """Test code generation from description."""
+    # Create mock model
+    mock_model = MagicMock()
+    mock_result = MagicMock()
+    mock_result.__getitem__.return_value = "struct Test {}"
+    mock_model.return_value = mock_result
+
     description = "A counter structure with increment method"
     prompt = "You are a Swift expert. Generate code based on description."
 
-    code = generator.generate_code(description, prompt)
+    code = generator.generate_code(mock_model, description, prompt)
+
+    # Verify code generation
     assert isinstance(code, str)
-    assert len(code) > 0
+    assert code == "struct Test {}"
+
+    # Verify model was called
+    assert mock_model.called
+    # Verify model was called with correct arguments
+    call_args = mock_model.call_args[1]
+    assert "description" in call_args
+    assert call_args["description"] == description
+    assert "prompt" in call_args
+    assert call_args["prompt"] == prompt
 
 
 def test_save_generated_code(tmp_path: Path) -> None:
