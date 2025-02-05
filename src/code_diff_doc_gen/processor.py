@@ -1,13 +1,14 @@
 """File processor module for CodeScribe.
 
-Handles reading source files and creating descriptions using Guidance.
+Handles reading source files and creating descriptions using OpenAI.
 """
 
 from pathlib import Path
 import toml
-import guidance
 from loguru import logger
 from typing import Dict
+
+from .llm import LLMClient, Message
 
 
 def read_source_files(directory: str) -> Dict[str, str]:
@@ -46,46 +47,29 @@ def read_source_files(directory: str) -> Dict[str, str]:
     return files
 
 
-def create_description(content: str, lm: guidance.models.Model) -> str:
-    """Create description for source code using Guidance.
+def create_description(content: str, llm: LLMClient) -> str:
+    """Create description for source code using OpenAI.
 
     Args:
         content: Source code content to describe
-        lm: Guidance language model to use
+        llm: LLM client to use
 
     Returns:
         Generated description of the code
     """
-    # Create Guidance program
-    program = guidance(
-        """
-    {{#system~}}
-    You are an expert code analyzer. Describe the functionality of the provided code concisely.
-    Focus on what the code does, not how it does it.
-    {{~/system}}
+    messages = [
+        Message(
+            role="user",
+            content=f"""Describe this code:
+```
+{content}
+```""",
+        )
+    ]
 
-    {{#user~}}
-    Describe this code:
-    ```
-    {{code}}
-    ```
-    {{~/user}}
-
-    {{#assistant~}}
-    {{gen 'description' temperature=0 max_tokens=200}}
-    {{~/assistant}}
-    """
-    )
-
-    # Run program with content
-    result = program(lm, code=content)
-
-    # Extract and clean description
-    description = result["description"].strip()
+    description = llm.complete(messages, temperature=0, max_tokens=200)
     logger.debug(f"Generated description: {description}")
-
     return description
-    return "Source code description placeholder"
 
 
 def save_descriptions(descriptions: Dict[str, str]) -> None:

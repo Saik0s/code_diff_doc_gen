@@ -1,12 +1,13 @@
 """Code generator module for CodeScribe.
 
-Generates code from descriptions using Guidance and system prompts.
+Generates code from descriptions using OpenAI.
 """
 
 from pathlib import Path
-import guidance
 from loguru import logger
 from typing import Optional
+
+from .llm import LLMClient, Message
 
 
 def read_system_prompt(round_num: int) -> str:
@@ -37,46 +38,33 @@ def read_system_prompt(round_num: int) -> str:
         raise
 
 
-@guidance
-def generate_code(lm: guidance.models.Model, description: str, prompt: str) -> str:
-    """Generate code from description using Guidance.
+def generate_code(llm: LLMClient, description: str, prompt: str) -> str:
+    """Generate code from description using OpenAI.
 
     Args:
-        lm: Guidance language model to use
+        llm: LLM client to use
         description: Source code description
         prompt: System prompt to use
 
     Returns:
         Generated code
     """
-    # Create Guidance program
-    program = guidance(
-        """
-    {{#system~}}
-    You are an expert in the detected language and frameworks. Generate code from the provided description.
-    {{prompt}}
-    {{~/system}}
+    messages = [
+        Message(
+            role="system",
+            content=f"""You are an expert in the detected language and frameworks. Generate code from the provided description.
+{prompt}""",
+        ),
+        Message(
+            role="user",
+            content=f"""Generate code for this description:
+{description}""",
+        ),
+    ]
 
-    {{#user~}}
-    Generate code for this description:
-    {{description}}
-    {{~/user}}
-
-    {{#assistant~}}
-    {{gen 'code' temperature=0 max_tokens=1000}}
-    {{~/assistant}}
-    """
-    )
-
-    # Run program
-    result = program(lm, description=description, prompt=prompt)
-
-    # Extract and clean generated code
-    code = result["code"].strip()
+    code = llm.complete(messages, temperature=0, max_tokens=1000)
     logger.debug(f"Generated code: {code}")
-
     return code
-    return "Generated code placeholder"
 
 
 def save_generated_code(code: str, round_num: int, filename: str) -> None:

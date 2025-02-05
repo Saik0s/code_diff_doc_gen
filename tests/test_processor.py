@@ -4,8 +4,8 @@ import pytest
 import os
 from pathlib import Path
 from unittest.mock import MagicMock
-import guidance
 from code_diff_doc_gen import processor
+from code_diff_doc_gen.llm import LLMClient
 
 
 def test_read_source_files(tmp_path: Path) -> None:
@@ -42,11 +42,9 @@ def test_read_source_files_missing_dir() -> None:
 
 def test_create_description() -> None:
     """Test creating description from code."""
-    # Create mock model
-    mock_model = MagicMock()
-    mock_result = MagicMock()
-    mock_result.__getitem__.return_value = "Test description"
-    mock_model.return_value = mock_result
+    # Create mock LLM client
+    mock_client = MagicMock(spec=LLMClient)
+    mock_client.complete.return_value = "Test description"
 
     code = """
     struct Counter {
@@ -58,14 +56,21 @@ def test_create_description() -> None:
     }
     """
 
-    description = processor.create_description(code, mock_model)
+    description = processor.create_description(code, mock_client)
 
     # Verify description
     assert isinstance(description, str)
     assert description == "Test description"
 
-    # Verify model was called
-    assert mock_model.called
+    # Verify client was used correctly
+    mock_client.complete.assert_called_once()
+    args = mock_client.complete.call_args[0]
+    messages = args[0]
+
+    # Verify message structure
+    assert len(messages) == 1
+    assert messages[0].role == "user"
+    assert "struct Counter" in messages[0].content
 
 
 def test_save_descriptions(tmp_path: Path) -> None:

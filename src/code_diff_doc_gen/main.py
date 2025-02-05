@@ -1,32 +1,32 @@
 """Main CLI module for CodeScribe."""
 
 import typer
-import guidance
 from pathlib import Path
 from loguru import logger
 from typing import Optional
 
 from . import processor, generator, diff, utils
-
-# Global model instance
-lm: Optional[guidance.models.Model] = None
+from .llm import LLMClient
 
 app = typer.Typer()
+
+# Global state
+state = {"llm": None, "initialized": False}
 
 
 @app.command()
 def init() -> None:
-    """Initialize CodeScribe workspace and model."""
-    global lm
+    """Initialize CodeScribe workspace and LLM client."""
     try:
         # Initialize workspace
         utils.init_workspace()
 
-        # Initialize Guidance model
-        logger.info("Initializing Guidance model")
-        lm = guidance.llms.OpenAI("gpt-3.5-turbo")
+        # Initialize OpenAI client
+        logger.info("Initializing OpenAI client")
+        state["llm"] = LLMClient()
+        state["initialized"] = True
 
-        typer.echo("CodeScribe workspace and model initialized successfully")
+        typer.echo("CodeScribe workspace and LLM client initialized successfully")
     except Exception as e:
         typer.echo(f"Error initializing: {e}", err=True)
         raise typer.Exit(1)
@@ -37,13 +37,12 @@ def process(
     directory: str = typer.Argument(..., help="Directory containing source files")
 ) -> None:
     """Process source files and create descriptions."""
-    global lm
     try:
         utils.ensure_workspace_exists()
 
-        # Ensure model is initialized
-        if lm is None:
-            raise RuntimeError("Model not initialized. Run 'init' first.")
+        # Initialize if not already done
+        if not state["initialized"]:
+            init()
 
         # Read source files
         files = processor.read_source_files(directory)
@@ -51,7 +50,7 @@ def process(
 
         # Create descriptions using model
         descriptions = {
-            filename: processor.create_description(content, lm)
+            filename: processor.create_description(content, state["llm"])
             for filename, content in files.items()
         }
 
@@ -69,13 +68,12 @@ def generate(
     round_num: int = typer.Argument(..., help="Generation round number")
 ) -> None:
     """Run generation round and create comparisons."""
-    global lm
     try:
         utils.ensure_workspace_exists()
 
-        # Ensure model is initialized
-        if lm is None:
-            raise RuntimeError("Model not initialized. Run 'init' first.")
+        # Initialize if not already done
+        if not state["initialized"]:
+            init()
 
         # Read descriptions
         desc_file = Path(".codescribe/descriptions.toml")
@@ -90,7 +88,9 @@ def generate(
         # Generate code for each description using model
         for filename, desc_data in processor.read_descriptions().items():
             # Generate code
-            generated = generator.generate_code(lm, desc_data["description"], prompt)
+            generated = generator.generate_code(
+                state["llm"], desc_data["description"], prompt
+            )
 
             # Save generated code
             generator.save_generated_code(generated, round_num, filename)
