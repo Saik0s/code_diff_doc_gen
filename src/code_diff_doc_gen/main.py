@@ -8,7 +8,11 @@ from loguru import logger
 from .processor import process_files
 from .generator import generate_code
 from .diff import compare_files
-from .llm import analyze_code_differences, generate_system_prompt_from_analyses
+from .llm import (
+    analyze_code_differences,
+    deduplicate_generated_system_prompt,
+    generate_system_prompt_from_analyses,
+)
 
 app = typer.Typer()
 
@@ -46,6 +50,10 @@ def run(
             # Generate system prompt for next round
             logger.info("Generating system prompt for next round...")
             await generate_system_prompt_from_analyses(round_num)
+
+            # Deduplicate system prompt
+            logger.info("Deduplicating system prompt...")
+            await deduplicate_generated_system_prompt(round_num)
 
             logger.info(f"Analysis and system prompt generation completed")
 

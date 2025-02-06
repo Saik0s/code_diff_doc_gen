@@ -46,6 +46,18 @@ Show multiple examples if needed.
 """
 
 
+async def call_llm(system: str, user: str) -> str:
+    response = await client.chat.completions.create(
+        model=model,
+        messages=[
+            {"role": "system", "content": system},
+            {"role": "user", "content": user},
+        ],
+    )
+
+    return response.choices[0].message.content
+
+
 async def analyze_code_differences(original: str, generated: str) -> str:
     """Analyze differences between original and generated code using LLM.
 
@@ -213,6 +225,36 @@ async def generate_system_prompt_from_analyses(round_num: int) -> str:
         prompt_file.write_text(next_prompt)
 
         return next_prompt
+
+    except Exception as e:
+        logger.exception(e)
+        raise
+
+
+async def deduplicate_generated_system_prompt(round_num: int) -> str:
+    """Deduplicate the generated system prompt.
+
+    Args:
+        round_num: Current generation round number
+
+    Returns:
+        Deduplicated system prompt
+    """
+    try:
+        prompt_file = Path(".codescribe") / "prompts" / f"system_{round_num}.md"
+        if not prompt_file.exists():
+            logger.warning(f"System prompt file not found for round {round_num}")
+            return ""
+
+        prompt = prompt_file.read_text()
+
+        # Use LLM to deduplicate content while preserving meaning
+        deduped_prompt = await call_llm(
+            system="You are an expert at removing redundant and duplicate code examples.",
+            user=f"Remove any duplicate or redundant code blocks from the provided text while maintaining all unique information.\n\n<input>\n{prompt}\n</input>",
+        )
+
+        return deduped_prompt
 
     except Exception as e:
         logger.exception(e)
