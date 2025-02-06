@@ -1,11 +1,10 @@
 """Compare original and generated code files."""
 
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from dataclasses import dataclass, asdict
+from dataclasses import dataclass
 from datetime import datetime
-import json
 from pathlib import Path
-from typing import List, Dict
+from typing import List
 from loguru import logger
 from .llm import analyze_code_differences
 import asyncio
@@ -14,30 +13,23 @@ import asyncio
 @dataclass
 class FileDiff:
     """Represents differences between original and generated files."""
-
     original_path: Path
     generated_path: Path
     analysis: str
     error: str | None = None
 
-    def to_dict(self) -> Dict:
-        """Convert to dictionary for JSON serialization."""
-        data = asdict(self)
-        # Convert Path objects to strings
-        data["original_path"] = str(data["original_path"])
-        data["generated_path"] = str(data["generated_path"])
-        return data
-
 
 async def _compare_single_file(
     original_path: Path,
     generated_path: Path,
+    analysis_dir: Path,
 ) -> FileDiff:
     """Compare a single pair of files.
 
     Args:
         original_path: Path to original file
         generated_path: Path to generated file
+        analysis_dir: Directory to store analysis files
 
     Returns:
         FileDiff containing analysis results
@@ -55,6 +47,14 @@ async def _compare_single_file(
         generated_content = generated_path.read_text(encoding="utf-8")
 
         analysis = await analyze_code_differences(original_content, generated_content)
+
+        # Save analysis to individual file
+        analysis_file = (
+            analysis_dir / original_path.parent / f"{original_path.name}.analysis"
+        )
+        analysis_file.parent.mkdir(parents=True, exist_ok=True)
+        analysis_file.write_text(analysis)
+
         return FileDiff(
             original_path=original_path,
             generated_path=generated_path,
@@ -78,17 +78,27 @@ async def compare_files(round_num: int) -> None:
     if not generated_dir.exists():
         raise FileNotFoundError(f"No generated files found for round {round_num}")
 
-    desc_file = Path(".codescribe/descriptions/files.json")
-    if not desc_file.exists():
+    desc_dir = Path(".codescribe/descriptions")
+    if not desc_dir.exists():
         raise FileNotFoundError("No descriptions found. Run process first.")
 
-    descriptions = json.loads(desc_file.read_text(encoding="utf-8"))
-    descriptions = list(descriptions.values())  # Convert dict to list
+    # Find all description files
+    desc_files = list(desc_dir.rglob("*.desc"))
+    if not desc_files:
+        raise FileNotFoundError("No description files found")
+
+    # Create analysis directory for this round
+    analysis_dir = Path(".codescribe/analysis") / f"round_{round_num}"
+    analysis_dir.mkdir(parents=True, exist_ok=True)
 
     # Create tasks for all file comparisons
     tasks = [
-        _compare_single_file(Path(desc["path"]), generated_dir / desc["path"])
-        for desc in descriptions
+        _compare_single_file(
+            Path(desc_file.parent / desc_file.stem.replace(".desc", "")),
+            generated_dir / desc_file.parent / desc_file.stem.replace(".desc", ""),
+            analysis_dir,
+        )
+        for desc_file in desc_files
     ]
 
     # Run all comparisons concurrently
@@ -100,20 +110,4 @@ async def compare_files(round_num: int) -> None:
         else:
             logger.info(f"Analyzed: {result.original_path}")
 
-    # Create output directory
-    output_dir = Path(".codescribe/analysis")
-    output_dir.mkdir(parents=True, exist_ok=True)
-
-    # Prepare results with metadata
-    output_data = {
-        "timestamp": datetime.now().isoformat(),
-        "round": round_num,
-        "results": [diff.to_dict() for diff in results],
-    }
-
-    # Save results to JSON file
-    output_file = output_dir / f"analysis_round_{round_num}.json"
-    with output_file.open("w", encoding="utf-8") as f:
-        json.dump(output_data, f, indent=2)
-
-    logger.info(f"Analysis saved to {output_file}")
+    logger.info(f"Analysis completed for round {round_num}")

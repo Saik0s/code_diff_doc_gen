@@ -175,3 +175,67 @@ Focus on being precise and technical while maintaining clarity."""
     except Exception as e:
         logger.exception(e)
         raise
+
+
+async def generate_system_prompt_from_analyses(round_num: int) -> str:
+    """Generate a system prompt for the next round based on previous analyses.
+
+    Args:
+        round_num: Current generation round number
+
+    Returns:
+        System prompt incorporating learnings from analyses
+    """
+    try:
+        analysis_dir = Path(".codescribe/analysis") / f"round_{round_num}"
+        if not analysis_dir.exists():
+            logger.warning(f"No analysis directory found for round {round_num}")
+            return load_system_prompt(round_num) or ""
+
+        # Collect all analysis files
+        analysis_files = list(analysis_dir.rglob("*.analysis"))
+        if not analysis_files:
+            logger.warning(f"No analysis files found for round {round_num}")
+            return load_system_prompt(round_num) or ""
+
+        # Combine all analyses
+        combined_analysis = "\n\n".join(
+            f"Analysis for {f.stem}:\n{f.read_text()}" for f in analysis_files
+        )
+
+        # Generate new prompt using analysis results
+        base_prompt = """You are an expert developer that can generate production ready code from descriptions.
+Based on previous code generation analysis, please pay special attention to:"""
+
+        response = await client.chat.completions.create(
+            model="o3-mini",
+            messages=[
+                {
+                    "role": "developer",
+                    "content": "You are an expert at synthesizing code analysis results into "
+                    "clear, actionable guidance for code generation.",
+                },
+                {
+                    "role": "user",
+                    "content": f"Based on this analysis:\n\n{combined_analysis}\n\n"
+                    "Generate a system prompt that helps prevent the identified issues. "
+                    "Focus on concrete, actionable guidance.",
+                },
+            ],
+        )
+
+        new_guidance = response.choices[0].message.content.strip()
+
+        # Save the new prompt
+        prompt_dir = Path(".codescribe") / "prompts"
+        prompt_dir.mkdir(parents=True, exist_ok=True)
+
+        next_prompt = f"{base_prompt}\n\n{new_guidance}"
+        prompt_file = prompt_dir / f"system_{round_num + 1}.md"
+        prompt_file.write_text(next_prompt)
+
+        return next_prompt
+
+    except Exception as e:
+        logger.exception(e)
+        raise

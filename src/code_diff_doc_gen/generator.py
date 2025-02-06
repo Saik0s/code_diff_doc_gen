@@ -9,30 +9,35 @@ from loguru import logger
 from .llm import generate_code_from_description, load_system_prompt
 
 
-async def generate_file(
-    description: Dict[str, str], round_num: int, prompt: str
-) -> Dict[str, str]:
+async def generate_file(desc_file: Path, round_num: int, prompt: str) -> Dict[str, str]:
     """Generate code for a single file.
+
+    Args:
+        desc_file: Path to the description file
+        round_num: Generation round number
+        prompt: System prompt for generation
 
     Returns:
         Dict containing file path, generated code (if any), and status
     """
     try:
-        output_path = Path(
-            f".codescribe/generated/round_{round_num}/{description['path']}"
-        )
+        # Get original file path from description file
+        file_path = desc_file.parent / desc_file.stem.replace(".desc", "")
+        description = desc_file.read_text()
+
+        output_path = Path(f".codescribe/generated/round_{round_num}/{file_path}")
 
         # Skip if file already exists
         if output_path.exists():
-            logger.info(f"Skipping existing file: {description['path']}")
+            logger.info(f"Skipping existing file: {file_path}")
             return {
-                "path": description["path"],
+                "path": str(file_path),
                 "status": "skipped",
                 "generated": output_path.read_text(),
             }
 
         implementation = await generate_code_from_description(
-            description["description"], description["path"], prompt
+            description, str(file_path), prompt
         )
 
         # Save generated code
@@ -40,7 +45,7 @@ async def generate_file(
         output_path.write_text(implementation)
 
         return {
-            "path": description["path"],
+            "path": str(file_path),
             "status": "generated",
             "generated": implementation,
         }
@@ -58,17 +63,19 @@ async def generate_code(round_num: int) -> List[Dict[str, str]]:
     Returns:
         List of generated file data
     """
-    # Load descriptions
-    desc_file = Path(".codescribe/descriptions/files.json")
-    if not desc_file.exists():
+    # Find all description files
+    desc_dir = Path(".codescribe/descriptions")
+    if not desc_dir.exists():
         raise FileNotFoundError("No descriptions found. Run process first.")
 
-    descriptions = json.loads(desc_file.read_text())
-    descriptions = list(descriptions.values())  # Convert dict to list
+    desc_files = list(desc_dir.rglob("*.desc"))
+    if not desc_files:
+        raise FileNotFoundError("No description files found")
 
     prompt = load_system_prompt(round_num)
+
     # Generate in parallel
-    tasks = [generate_file(desc, round_num, prompt) for desc in descriptions]
+    tasks = [generate_file(desc, round_num, prompt) for desc in desc_files]
     results = await asyncio.gather(*tasks)
 
     # Filter out failures
@@ -81,7 +88,7 @@ async def generate_code(round_num: int) -> List[Dict[str, str]]:
     # Save metadata
     meta = {
         "round": round_num,
-        "total": len(descriptions),
+        "total": len(desc_files),
         "successful": len(generated),
         "newly_generated": newly_generated,
         "skipped": skipped,
