@@ -20,14 +20,14 @@ Generated:
 Provide code comparison blocks showing problematic vs correct patterns. Example format:
 
 // Bad Code
-function processUnknownData(x: any) {
+function processUnknownData(x: any) {{
   // Anti-pattern
-}
+}}
 
 // Good Code
-function validateUserProfile(profile: UserProfile): ValidationResult {
+function validateUserProfile(profile: UserProfile): ValidationResult {{
   // Type-safe implementation
-}
+}}
 
 Focus on:
 - API misuse
