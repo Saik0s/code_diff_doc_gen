@@ -2,9 +2,11 @@
 
 ## Stack
 - Python 3.11
-- Guidance for LLM control
-- TOML for storage
-- Typer for CLI
+- OpenAI API for LLM operations
+- TOML for configuration storage
+- Typer for CLI interface
+- Loguru for logging
+- Difflib for code comparisons
 
 ## Dependencies
 ```toml
@@ -12,22 +14,56 @@
 python = "^3.11"
 typer = "^0.9.0"
 toml = "^0.10.2"
-guidance = "^0.1.0"  # For LLM control
+openai = "^1.0.0"  # For LLM operations
+loguru = "^0.7.0"  # For logging
 ```
 
 ## Structure
 ```
 src/code_diff_doc_gen/
-  main.py          # CLI
-  processor.py     # File handling
-  generator.py     # Code gen with Guidance
-  diff.py          # Comparisons
-  utils.py         # Helpers
+  main.py          # CLI interface
+  processor.py     # File handling and descriptions
+  generator.py     # Code generation with OpenAI
+  diff.py          # Code comparisons
+  llm.py          # OpenAI client wrapper
+  utils.py         # Helper functions
+
+.codescribe/
+  descriptions.toml       # File descriptions
+  prompts/               # System prompts
+    system_0.md          # Base prompt
+    system_N.md          # With examples
+  generated/             # Output code
+    round_N/            # By round
 ```
 
 ## Setup
-1. Install deps
-2. Set up Guidance model
-3. Run script
+1. Install dependencies:
+   ```bash
+   pip install poetry
+   poetry install
+   ```
 
-That's all we need.
+2. Configure OpenAI:
+   - Set OPENAI_API_KEY environment variable
+   - Default model: gpt-4
+
+3. Initialize workspace:
+   ```bash
+   python -m code_diff_doc_gen init
+   ```
+
+4. Run workflow:
+   ```bash
+   # Process source files
+   python -m code_diff_doc_gen process <directory>
+
+   # Generate code (round N)
+   python -m code_diff_doc_gen generate N
+   ```
+
+## Development
+- Use Black for formatting
+- Tests with pytest
+- Loguru for structured logging
+- Type hints throughout codebase
