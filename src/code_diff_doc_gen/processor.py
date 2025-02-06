@@ -1,107 +1,92 @@
-"""File processor module for CodeScribe.
+"""Process source files for code generation."""
 
-Handles reading source files and creating descriptions using OpenAI.
-"""
-
+import asyncio
 from pathlib import Path
-import toml
+from typing import List, Dict
+import aiofiles
 from loguru import logger
-from typing import Dict
+import time
+import json
 
-from .llm import LLMClient, Message
+from code_diff_doc_gen.llm import generate_file_description
 
 
-def read_source_files(directory: str) -> Dict[str, str]:
-    """Read source files from directory.
+async def read_file(
+    path: Path, existing_data: Dict[str, Dict] = None
+) -> Dict[str, str]:
+    """Read file content asynchronously if needed.
 
     Args:
-        directory: Path to directory containing source files
+        path: Path to the file
+        existing_data: Previously processed file data
 
     Returns:
-        Dict mapping filenames to their contents
-
-    Raises:
-        FileNotFoundError: If directory doesn't exist
-        IOError: If files can't be read
+        Dict containing file info and description or None if error
     """
-    source_dir = Path(directory)
-    if not source_dir.exists():
-        raise FileNotFoundError(f"Directory not found: {directory}")
-
-    files: Dict[str, str] = {}
-
-    logger.info(f"Reading source files from {directory}")
-
     try:
-        # Recursively get all .swift files
-        for file_path in source_dir.rglob("*.swift"):
-            relative_path = file_path.relative_to(source_dir)
-            files[str(relative_path)] = file_path.read_text()
-            logger.debug(f"Read file: {relative_path}")
+        # Check if file was already processed
+        file_path_str = str(path)
+        mtime = path.stat().st_mtime
 
-    except IOError as e:
-        logger.error(f"Error reading files: {e}")
-        raise
+        if existing_data and file_path_str in existing_data:
+            existing = existing_data[file_path_str]
+            if existing.get("mtime", 0) >= mtime:
+                logger.debug(f"Skipping unchanged file: {path}")
+                return existing
 
-    logger.info(f"Found {len(files)} source files")
-    return files
+        async with aiofiles.open(path, "r") as f:
+            content = await f.read()
 
-
-def create_description(content: str, llm: LLMClient) -> str:
-    """Create description for source code using OpenAI.
-
-    Args:
-        content: Source code content to describe
-        llm: LLM client to use
-
-    Returns:
-        Generated description of the code
-    """
-    messages = [
-        Message(
-            role="user",
-            content=f"""Describe this code:
-```
-{content}
-```""",
-        )
-    ]
-
-    description = llm.complete(messages, temperature=0, max_tokens=200)
-    logger.debug(f"Generated description: {description}")
-    return description
-
-
-def save_descriptions(descriptions: Dict[str, str]) -> None:
-    """Save descriptions to TOML file.
-
-    Args:
-        descriptions: Dict mapping filenames to descriptions
-
-    Raises:
-        IOError: If file can't be written
-    """
-    output_dir = Path(".codescribe")
-    output_dir.mkdir(exist_ok=True)
-
-    output_file = output_dir / "descriptions.toml"
-
-    logger.info(f"Saving descriptions to {output_file}")
-
-    try:
-        # Convert to TOML format
-        data = {
-            filename: {
-                "path": filename,
-                "language": "swift",  # Hardcoded for now
-                "description": desc,
-            }
-            for filename, desc in descriptions.items()
+        return {
+            "path": file_path_str,
+            "content": content,
+            "extension": path.suffix,
+            "description": await generate_file_description(content, path),
+            "mtime": mtime,
         }
+    except Exception as e:
+        logger.error(f"Error reading {path}: {e}")
+        return None
 
-        output_file.write_text(toml.dumps(data))
-        logger.info("Descriptions saved successfully")
 
-    except IOError as e:
-        logger.error(f"Error saving descriptions: {e}")
-        raise
+async def process_files(source_dir: Path) -> List[Dict[str, str]]:
+    """Process source files in parallel.
+
+    Args:
+        source_dir: Directory containing source files
+
+    Returns:
+        List of processed file data
+    """
+    output_path = Path(".codescribe/descriptions/files.json")
+    existing_data = {}
+
+    # Load existing processed data if available
+    if output_path.exists():
+        try:
+            existing_data = json.loads(output_path.read_text())
+        except Exception as e:
+            logger.warning(f"Could not load existing data: {e}")
+
+    # Collect all source files
+    files = list(source_dir.rglob("*"))
+    files = [f for f in files if f.is_file() and not f.name.startswith(".")]
+
+    if not files:
+        raise ValueError(f"No files found in {source_dir}")
+
+    # Process files concurrently
+    tasks = [read_file(f, existing_data) for f in files]
+    results = await asyncio.gather(*tasks)
+
+    # Filter out failed reads
+    processed = {r["path"]: r for r in results if r is not None}
+
+    # Ensure output directory exists
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+
+    # Save processed data
+    output_path.write_text(json.dumps(processed, indent=2))
+
+    logger.info(f"Processed {len(processed)} files")
+    return list(processed.values())

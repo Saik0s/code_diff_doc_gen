@@ -1,38 +1,39 @@
 [project]
-name = "code-diff-doc-gen"
+name = "code_diff_doc_gen"
 version = "0.1.0"
-description = "A tool for code documentation and generation through automated descriptions and comparisons"
-authors = []
-readme = "README.md"
-requires-python = ">=3.11"
+description = "Generate and analyze code differences"
+authors = [{ name = "Igor Tarasenko" }]
 dependencies = [
-    "loguru>=0.7.3",
-    "typer>=0.15.1",
+    "typer>=0.9.0",
+    "loguru>=0.7.0",
+    "openai>=1.0.0",
     "toml>=0.10.2",
-    "openai>=1.61.1",
+    "aiofiles>=24.1.0",
 ]
 
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
-[tool.hatch.build.targets.wheel]
-packages = ["src/code_diff_doc_gen"]
-
-[tool.uv]
+[tool.rye]
+managed = true
 dev-dependencies = [
     "pytest>=7.4.0",
-    "black>=23.7.0",
+    "pytest-asyncio>=0.21.1",
+    "black>=23.7.0"
 ]
 
 [project.scripts]
 code-diff-doc-gen = "code_diff_doc_gen.main:main"
 
 [tool.pytest.ini_options]
-pythonpath = ["src"]
+asyncio_mode = "auto"
 testpaths = ["tests"]
 
 [tool.black]
 line-length = 88
 target-version = ["py311"]
-include = '\.pyi?$'
+
+[tool.poetry.dependencies]
+tomli = "^2.0.1"
+tomli-w = "^1.0.0"

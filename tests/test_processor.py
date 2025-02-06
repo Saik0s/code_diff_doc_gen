@@ -2,6 +2,7 @@
 
 import pytest
 import os
+import json
 from pathlib import Path
 from unittest.mock import MagicMock
 from code_diff_doc_gen import processor
@@ -74,9 +75,10 @@ def test_create_description() -> None:
 
 
 def test_save_descriptions(tmp_path: Path) -> None:
-    """Test saving descriptions to TOML file."""
-    # Create test descriptions
+    """Test saving descriptions to JSON file."""
+    # Create test data
     descriptions = {"test.swift": "A test description"}
+    source_files = {"test.swift": "struct Test {}"}
 
     # Change to temp directory for test
     original_cwd = os.getcwd()
@@ -84,17 +86,53 @@ def test_save_descriptions(tmp_path: Path) -> None:
         os.chdir(tmp_path)
 
         # Save descriptions
-        processor.save_descriptions(descriptions)
+        processor.save_descriptions(descriptions, source_files)
 
         # Verify file was created
-        toml_file = Path(".codescribe/descriptions.toml")
-        assert toml_file.exists()
+        json_file = Path(".codescribe/descriptions/files.json")
+        assert json_file.exists()
 
         # Verify content
-        content = toml_file.read_text()
+        content = json.loads(json_file.read_text())
         assert "test.swift" in content
-        assert "A test description" in content
+        assert content["test.swift"]["description"] == "A test description"
 
     finally:
         # Restore original directory
         os.chdir(original_cwd)
+
+
+def test_read_descriptions(tmp_path: Path) -> None:
+    """Test reading descriptions from JSON file."""
+    # Create test data
+    descriptions = {"test.swift": "A test description"}
+    source_files = {"test.swift": "struct Test {}"}
+
+    # Change to temp directory for test
+    original_cwd = os.getcwd()
+    try:
+        os.chdir(tmp_path)
+
+        # Save descriptions first
+        processor.save_descriptions(descriptions, source_files)
+
+        # Read descriptions
+        read_data = processor.read_descriptions()
+
+        # Verify content
+        assert len(read_data) == 1
+        assert "test.swift" in read_data
+        assert read_data["test.swift"]["path"] == "test.swift"
+        assert read_data["test.swift"]["language"] == "swift"
+        assert read_data["test.swift"]["description"] == "A test description"
+        assert read_data["test.swift"]["original"] == "struct Test {}"
+
+    finally:
+        # Restore original directory
+        os.chdir(original_cwd)
+
+
+def test_read_descriptions_missing_file() -> None:
+    """Test reading from non-existent descriptions file."""
+    with pytest.raises(FileNotFoundError):
+        processor.read_descriptions()

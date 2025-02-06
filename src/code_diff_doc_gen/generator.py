@@ -1,93 +1,96 @@
-"""Code generator module for CodeScribe.
+"""Generate code from descriptions."""
 
-Generates code from descriptions using OpenAI.
-"""
-
+import asyncio
+import json
 from pathlib import Path
+from typing import List, Dict
 from loguru import logger
-from typing import Optional
 
-from .llm import LLMClient, Message
+from .llm import generate_code_from_description, load_system_prompt
 
 
-def read_system_prompt(round_num: int) -> str:
-    """Read system prompt for given round.
+async def generate_file(
+    description: Dict[str, str], round_num: int, prompt: str
+) -> Dict[str, str]:
+    """Generate code for a single file.
+
+    Returns:
+        Dict containing file path, generated code (if any), and status
+    """
+    try:
+        output_path = Path(
+            f".codescribe/generated/round_{round_num}/{description['path']}"
+        )
+
+        # Skip if file already exists
+        if output_path.exists():
+            logger.info(f"Skipping existing file: {description['path']}")
+            return {
+                "path": description["path"],
+                "status": "skipped",
+                "generated": output_path.read_text(),
+            }
+
+        implementation = await generate_code_from_description(
+            description["description"], description["path"], prompt
+        )
+
+        # Save generated code
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        output_path.write_text(implementation)
+
+        return {
+            "path": description["path"],
+            "status": "generated",
+            "generated": implementation,
+        }
+    except Exception as e:
+        logger.exception(e)
+        raise
+
+
+async def generate_code(round_num: int) -> List[Dict[str, str]]:
+    """Generate code for all descriptions in parallel.
 
     Args:
         round_num: Generation round number
 
     Returns:
-        System prompt content
-
-    Raises:
-        FileNotFoundError: If prompt file doesn't exist
-        IOError: If prompt file can't be read
+        List of generated file data
     """
-    prompt_dir = Path(".codescribe/prompts")
-    prompt_file = prompt_dir / f"system_{round_num}.md"
+    # Load descriptions
+    desc_file = Path(".codescribe/descriptions/files.json")
+    if not desc_file.exists():
+        raise FileNotFoundError("No descriptions found. Run process first.")
 
-    if not prompt_file.exists():
-        raise FileNotFoundError(f"Prompt file not found: {prompt_file}")
+    descriptions = json.loads(desc_file.read_text())
+    descriptions = list(descriptions.values())  # Convert dict to list
 
-    logger.info(f"Reading system prompt for round {round_num}")
+    prompt = load_system_prompt(round_num)
+    # Generate in parallel
+    tasks = [generate_file(desc, round_num, prompt) for desc in descriptions]
+    results = await asyncio.gather(*tasks)
 
-    try:
-        return prompt_file.read_text()
-    except IOError as e:
-        logger.error(f"Error reading prompt file: {e}")
-        raise
+    # Filter out failures
+    generated = [r for r in results if r is not None]
 
+    # Count genuinely generated files
+    newly_generated = len([r for r in generated if r["status"] == "generated"])
+    skipped = len([r for r in generated if r["status"] == "skipped"])
 
-def generate_code(llm: LLMClient, description: str, prompt: str) -> str:
-    """Generate code from description using OpenAI.
+    # Save metadata
+    meta = {
+        "round": round_num,
+        "total": len(descriptions),
+        "successful": len(generated),
+        "newly_generated": newly_generated,
+        "skipped": skipped,
+    }
+    meta_file = Path(f".codescribe/generated/round_{round_num}/metadata.json")
+    meta_file.parent.mkdir(parents=True, exist_ok=True)
+    meta_file.write_text(json.dumps(meta, indent=2))
 
-    Args:
-        llm: LLM client to use
-        description: Source code description
-        prompt: System prompt to use
-
-    Returns:
-        Generated code
-    """
-    messages = [
-        Message(
-            role="system",
-            content=f"""You are an expert in the detected language and frameworks. Generate code from the provided description.
-{prompt}""",
-        ),
-        Message(
-            role="user",
-            content=f"""Generate code for this description:
-{description}""",
-        ),
-    ]
-
-    code = llm.complete(messages, temperature=0, max_tokens=1000)
-    logger.debug(f"Generated code: {code}")
-    return code
-
-
-def save_generated_code(code: str, round_num: int, filename: str) -> None:
-    """Save generated code to appropriate round directory.
-
-    Args:
-        code: Generated code content
-        round_num: Generation round number
-        filename: Original source filename
-
-    Raises:
-        IOError: If file can't be written
-    """
-    output_dir = Path(f".codescribe/generated/round_{round_num}")
-    output_dir.mkdir(parents=True, exist_ok=True)
-
-    output_file = output_dir / filename
-
-    logger.info(f"Saving generated code to {output_file}")
-
-    try:
-        output_file.write_text(code)
-        logger.info("Generated code saved successfully")
-    except IOError as e:
-        logger.error(f"Error saving generated code: {e}")
-        raise
+    logger.info(
+        f"Generated {newly_generated} new files, skipped {skipped} existing files"
+    )
+    return generated

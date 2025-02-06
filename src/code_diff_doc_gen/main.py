@@ -1,114 +1,61 @@
-"""Main CLI module for CodeScribe."""
+"""Code generation and analysis tool."""
 
-import typer
+import asyncio
 from pathlib import Path
+import typer
 from loguru import logger
-from typing import Optional
 
-from . import processor, generator, diff, utils
-from .llm import LLMClient
+from .processor import process_files
+from .generator import generate_code
+from .diff import compare_files
+from .llm import analyze_code_differences
 
 app = typer.Typer()
 
-# Global state
-state = {"llm": None, "initialized": False}
+
+async def ensure_workspace():
+    """Create workspace directories."""
+    workspace = Path(".codescribe")
+    for subdir in ["descriptions", "generated", "analysis"]:
+        (workspace / subdir).mkdir(parents=True, exist_ok=True)
 
 
 @app.command()
-def init() -> None:
-    """Initialize CodeScribe workspace and LLM client."""
-    try:
-        # Initialize workspace
-        utils.init_workspace()
+def run(
+    source_dir: Path = typer.Argument(..., help="Source code directory"),
+    round_num: int = typer.Option(0, "--round", "-r", help="Generation round"),
+):
+    """Process source code and generate documentation."""
 
-        # Initialize OpenAI client
-        logger.info("Initializing OpenAI client")
-        state["llm"] = LLMClient()
-        state["initialized"] = True
+    async def main():
+        await ensure_workspace()
 
-        typer.echo("CodeScribe workspace and LLM client initialized successfully")
-    except Exception as e:
-        typer.echo(f"Error initializing: {e}", err=True)
-        raise typer.Exit(1)
+        try:
+            # Process files
+            logger.info("Processing source files...")
+            await process_files(source_dir)
 
-
-@app.command()
-def process(
-    directory: str = typer.Argument(..., help="Directory containing source files")
-) -> None:
-    """Process source files and create descriptions."""
-    try:
-        utils.ensure_workspace_exists()
-
-        # Initialize if not already done
-        if not state["initialized"]:
-            init()
-
-        # Read source files
-        files = processor.read_source_files(directory)
-        typer.echo(f"Found {len(files)} source files")
-
-        # Create descriptions using model
-        descriptions = {
-            filename: processor.create_description(content, state["llm"])
-            for filename, content in files.items()
-        }
-
-        # Save descriptions
-        processor.save_descriptions(descriptions)
-        typer.echo("Descriptions created and saved successfully")
-
-    except Exception as e:
-        typer.echo(f"Error processing files: {e}", err=True)
-        raise typer.Exit(1)
-
-
-@app.command()
-def generate(
-    round_num: int = typer.Argument(..., help="Generation round number")
-) -> None:
-    """Run generation round and create comparisons."""
-    try:
-        utils.ensure_workspace_exists()
-
-        # Initialize if not already done
-        if not state["initialized"]:
-            init()
-
-        # Read descriptions
-        desc_file = Path(".codescribe/descriptions.toml")
-        if not desc_file.exists():
-            raise FileNotFoundError("No descriptions found. Run 'process' first.")
-
-        # Read system prompt
-        prompt = generator.read_system_prompt(round_num)
-
-        examples = []
-
-        # Generate code for each description using model
-        for filename, desc_data in processor.read_descriptions().items():
             # Generate code
-            generated = generator.generate_code(
-                state["llm"], desc_data["description"], prompt
-            )
+            logger.info("Generating code...")
+            await generate_code(round_num)
 
-            # Save generated code
-            generator.save_generated_code(generated, round_num, filename)
+            # Compare and analyze
+            logger.info("Analyzing changes...")
+            await compare_files(round_num)
 
-            # Create comparison example
-            example = diff.format_example(desc_data["original"], generated)
-            examples.append(example)
+            logger.info(f"Analysis saved")
 
-        # Update system prompt for next round
-        diff.update_system_prompt(examples, round_num + 1)
+        except Exception as e:
+            logger.exception(e)
+            raise typer.Exit(1)
 
-        typer.echo(f"Round {round_num} completed successfully")
-
-    except Exception as e:
-        typer.echo(f"Error in generation round: {e}", err=True)
-        raise typer.Exit(1)
+    asyncio.run(main())
 
 
-def main() -> None:
-    """Main CLI entry point."""
+def main():
+    """CLI entry point."""
     app()
+
+
+if __name__ == "__main__":
+    main()

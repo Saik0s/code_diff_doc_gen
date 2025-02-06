@@ -66,7 +66,7 @@ Files -> Descriptions (OpenAI) -> Generated Code (OpenAI) -> Diffs -> New Prompt
    - Track progress
 
 ## OpenAI Usage
-- Use GPT-4 for consistency
+- Use GPT-4o for consistency
 - Zero temperature for deterministic output
 - Structured prompts for control
 - Error handling and retries

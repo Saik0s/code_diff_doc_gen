@@ -46,7 +46,7 @@ src/code_diff_doc_gen/
 
 2. Configure OpenAI:
    - Set OPENAI_API_KEY environment variable
-   - Default model: gpt-4
+   - Default model: gpt-4o
 
 3. Initialize workspace:
    ```bash
