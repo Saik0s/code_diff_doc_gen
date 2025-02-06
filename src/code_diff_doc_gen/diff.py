@@ -65,10 +65,11 @@ async def _compare_single_file(
         raise
 
 
-async def compare_files(round_num: int) -> None:
+async def compare_files(source_dir: Path, round_num: int) -> None:
     """Compare original and generated files in parallel and save results.
 
     Args:
+        source_dir: Directory containing original source files
         round_num: Generation round number
 
     Raises:
@@ -78,27 +79,27 @@ async def compare_files(round_num: int) -> None:
     if not generated_dir.exists():
         raise FileNotFoundError(f"No generated files found for round {round_num}")
 
-    desc_dir = Path(".codescribe/descriptions")
-    if not desc_dir.exists():
-        raise FileNotFoundError("No descriptions found. Run process first.")
-
-    # Find all description files
-    desc_files = list(desc_dir.rglob("*.desc"))
-    if not desc_files:
-        raise FileNotFoundError("No description files found")
-
     # Create analysis directory for this round
     analysis_dir = Path(".codescribe/analysis") / f"round_{round_num}"
     analysis_dir.mkdir(parents=True, exist_ok=True)
 
+    # Find all source files
+    source_files = list(source_dir.rglob("*"))
+    source_files = [
+        f for f in source_files if f.is_file() and not f.name.startswith(".")
+    ]
+
+    if not source_files:
+        raise FileNotFoundError(f"No source files found in {source_dir}")
+
     # Create tasks for all file comparisons
     tasks = [
         _compare_single_file(
-            Path(desc_file.parent / desc_file.stem.replace(".desc", "")),
-            generated_dir / desc_file.parent / desc_file.stem.replace(".desc", ""),
+            source_file,
+            generated_dir / source_file.relative_to(source_dir),
             analysis_dir,
         )
-        for desc_file in desc_files
+        for source_file in source_files
     ]
 
     # Run all comparisons concurrently

@@ -1,12 +1,17 @@
 """LLM operations for code analysis and generation."""
 
+import os
 from typing import Any, Dict, List, Optional
 import openai
 from loguru import logger
 from pathlib import Path
 
 # Initialize OpenAI client
-client = openai.AsyncOpenAI()
+client = openai.AsyncOpenAI(
+    base_url=os.getenv("TARGET_OPENAI_BASE_URL"),
+    api_key=os.getenv("TARGET_OPENAI_API_KEY"),
+)
+model = os.getenv("TARGET_MODEL_NAME")
 
 ANALYSIS_PROMPT = """
 Review and compare the code differences below, highlighting API and library usage issues. Original code represents the correct implementation.
@@ -19,6 +24,7 @@ Generated:
 
 Provide code comparison blocks showing problematic vs correct patterns. Example format:
 
+```
 // Bad Code
 function processUnknownData(x: any) {{
   // Anti-pattern
@@ -28,6 +34,7 @@ function processUnknownData(x: any) {{
 function validateUserProfile(profile: UserProfile): ValidationResult {{
   // Type-safe implementation
 }}
+```
 
 Focus on:
 - API misuse
@@ -51,12 +58,12 @@ async def analyze_code_differences(original: str, generated: str) -> str:
     """
     try:
         response = await client.chat.completions.create(
-            model="o3-mini",
+            model=model,
             messages=[
                 {
-                    "role": "developer",
+                    "role": "system",
                     "content": "You are an expert code reviewer focusing on "
-                    "design patterns, best practices, and code quality.",
+                    "design patterns, best practices, and code quality. Output only the bad/good code pairs, no other text.",
                 },
                 {
                     "role": "user",
@@ -91,10 +98,10 @@ async def generate_code_from_description(
     try:
         messages = [
             {
-                "role": "developer",
+                "role": "system",
                 "content": system_prompt
                 or "You are an expert software developer. "
-                "Generate clean, efficient, and well-documented code.",
+                "Generate clean, efficient, and well-documented code. Output only the code, no other text.",
             },
             {
                 "role": "user",
@@ -103,7 +110,7 @@ async def generate_code_from_description(
         ]
 
         response = await client.chat.completions.create(
-            model="o3-mini",
+            model=model,
             messages=messages,
         )
 
@@ -145,27 +152,17 @@ async def generate_file_description(content: str, file_path: Path) -> Optional[s
         Generated description or None if failed
     """
     try:
-        # System prompt for description generation
-        system_prompt = """You are an expert code analyst. Create a detailed description of the code that includes:
-1. Overall purpose and functionality
-2. Key components and their relationships
-3. Important algorithms or patterns used
-4. External dependencies and requirements
-5. Any notable implementation details
-
-Focus on being precise and technical while maintaining clarity."""
-
         # Generate description
         response = await client.chat.completions.create(
-            model="o3-mini",
+            model=model,
             messages=[
                 {
-                    "role": "developer",
-                    "content": system_prompt,
+                    "role": "system",
+                    "content": "You are an expert code analyst and task description writer.",
                 },
                 {
                     "role": "user",
-                    "content": f"Analyze and describe this code:\n\n{content}",
+                    "content": f"What 3 paragraphs max task description would result in exactly following code if this task was completed by a developer:\n\n{content}",
                 },
             ],
         )
@@ -198,39 +195,20 @@ async def generate_system_prompt_from_analyses(round_num: int) -> str:
             logger.warning(f"No analysis files found for round {round_num}")
             return load_system_prompt(round_num) or ""
 
+        # Get previous prompt
+        prev_prompt = load_system_prompt(round_num) or ""
+
         # Combine all analyses
-        combined_analysis = "\n\n".join(
+        analyses = "\n\n".join(
             f"Analysis for {f.stem}:\n{f.read_text()}" for f in analysis_files
         )
 
-        # Generate new prompt using analysis results
-        base_prompt = """You are an expert developer that can generate production ready code from descriptions.
-Based on previous code generation analysis, please pay special attention to:"""
-
-        response = await client.chat.completions.create(
-            model="o3-mini",
-            messages=[
-                {
-                    "role": "developer",
-                    "content": "You are an expert at synthesizing code analysis results into "
-                    "clear, actionable guidance for code generation.",
-                },
-                {
-                    "role": "user",
-                    "content": f"Based on this analysis:\n\n{combined_analysis}\n\n"
-                    "Generate a system prompt that helps prevent the identified issues. "
-                    "Focus on concrete, actionable guidance.",
-                },
-            ],
-        )
-
-        new_guidance = response.choices[0].message.content.strip()
+        # Combine previous prompt with analyses
+        next_prompt = f"{prev_prompt}\n\nAnalyses from round {round_num}:\n\n{analyses}"
 
         # Save the new prompt
         prompt_dir = Path(".codescribe") / "prompts"
         prompt_dir.mkdir(parents=True, exist_ok=True)
-
-        next_prompt = f"{base_prompt}\n\n{new_guidance}"
         prompt_file = prompt_dir / f"system_{round_num + 1}.md"
         prompt_file.write_text(next_prompt)
 

@@ -10,12 +10,15 @@ import time
 from code_diff_doc_gen.llm import generate_file_description
 
 
-async def read_file(path: Path, descriptions_dir: Path) -> Dict[str, str]:
+async def read_file(
+    path: Path, descriptions_dir: Path, source_dir: Path
+) -> Dict[str, str]:
     """Read file content asynchronously and generate description.
 
     Args:
         path: Path to the file
         descriptions_dir: Directory to store descriptions
+        source_dir: Base directory of source files
 
     Returns:
         Dict containing file info and description or None if error
@@ -24,10 +27,8 @@ async def read_file(path: Path, descriptions_dir: Path) -> Dict[str, str]:
         file_path_str = str(path)
         mtime = path.stat().st_mtime
 
-        # Create mirrored path for description
-        relative_path = path.relative_to(
-            path.parent.parent
-        )  # Get path relative to project root
+        # Create mirrored path for description using source_dir
+        relative_path = path.relative_to(source_dir)
         desc_file = descriptions_dir / relative_path.parent / f"{path.name}.desc"
 
         # Check if description exists and is up to date
@@ -74,8 +75,8 @@ async def process_files(source_dir: Path) -> List[Dict[str, str]]:
     if not files:
         raise ValueError(f"No files found in {source_dir}")
 
-    # Process files concurrently
-    tasks = [read_file(f, descriptions_dir) for f in files]
+    # Process files concurrently, passing source_dir to read_file
+    tasks = [read_file(f, descriptions_dir, source_dir) for f in files]
     results = await asyncio.gather(*tasks)
 
     # Filter out failed reads

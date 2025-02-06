@@ -37,11 +37,11 @@ def run(
 
             # Generate code
             logger.info("Generating code...")
-            await generate_code(round_num)
+            await generate_code(source_dir, round_num)
 
             # Compare and analyze
             logger.info("Analyzing changes...")
-            await compare_files(round_num)
+            await compare_files(source_dir, round_num)
 
             # Generate system prompt for next round
             logger.info("Generating system prompt for next round...")

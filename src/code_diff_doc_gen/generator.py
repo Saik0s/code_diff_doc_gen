@@ -9,86 +9,106 @@ from loguru import logger
 from .llm import generate_code_from_description, load_system_prompt
 
 
-async def generate_file(desc_file: Path, round_num: int, prompt: str) -> Dict[str, str]:
+async def generate_file(
+    source_file: Path,
+    round_num: int,
+    prompt: str,
+    descriptions_dir: Path,
+    source_dir: Path,
+) -> Dict[str, str]:
     """Generate code for a single file.
 
     Args:
-        desc_file: Path to the description file
+        source_file: Path to the original source file
         round_num: Generation round number
         prompt: System prompt for generation
+        descriptions_dir: Directory where descriptions are stored
+        source_dir: Base directory of source files
 
     Returns:
         Dict containing file path, generated code (if any), and status
     """
-    try:
-        # Get original file path from description file
-        file_path = desc_file.parent / desc_file.stem.replace(".desc", "")
-        description = desc_file.read_text()
+    # Compute corresponding description file path
+    desc_file = (
+        descriptions_dir
+        / source_file.relative_to(source_dir).parent
+        / f"{source_file.name}.desc"
+    )
 
-        output_path = Path(f".codescribe/generated/round_{round_num}/{file_path}")
+    if not desc_file.exists():
+        raise FileNotFoundError(f"Description file not found: {desc_file}")
 
-        # Skip if file already exists
-        if output_path.exists():
-            logger.info(f"Skipping existing file: {file_path}")
-            return {
-                "path": str(file_path),
-                "status": "skipped",
-                "generated": output_path.read_text(),
-            }
+    # Determine output path in generated directory
+    output_path = Path(
+        f".codescribe/generated/round_{round_num}"
+    ) / source_file.relative_to(source_dir)
 
-        implementation = await generate_code_from_description(
-            description, str(file_path), prompt
-        )
-
-        # Save generated code
-        output_path.parent.mkdir(parents=True, exist_ok=True)
-        output_path.write_text(implementation)
-
+    # Skip if generated file already exists
+    if output_path.exists():
+        logger.info(f"Skipping existing file: {source_file}")
         return {
-            "path": str(file_path),
-            "status": "generated",
-            "generated": implementation,
+            "path": str(source_file),
+            "status": "skipped",
+            "generated": output_path.read_text(),
         }
-    except Exception as e:
-        logger.exception(e)
-        raise
+
+    description = desc_file.read_text()
+    implementation = await generate_code_from_description(
+        description, str(source_file), prompt
+    )
+
+    # Save generated code
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_path.write_text(implementation)
+
+    return {
+        "path": str(source_file),
+        "status": "generated",
+        "generated": implementation,
+    }
 
 
-async def generate_code(round_num: int) -> List[Dict[str, str]]:
-    """Generate code for all descriptions in parallel.
+async def generate_code(source_dir: Path, round_num: int) -> List[Dict[str, str]]:
+    """Generate code for all source files in parallel.
 
     Args:
+        source_dir: Directory containing original source files
         round_num: Generation round number
 
     Returns:
         List of generated file data
     """
-    # Find all description files
-    desc_dir = Path(".codescribe/descriptions")
-    if not desc_dir.exists():
+    descriptions_dir = Path(".codescribe/descriptions")
+    if not descriptions_dir.exists():
         raise FileNotFoundError("No descriptions found. Run process first.")
 
-    desc_files = list(desc_dir.rglob("*.desc"))
-    if not desc_files:
-        raise FileNotFoundError("No description files found")
+    # Get all source files
+    source_files = list(source_dir.rglob("*"))
+    source_files = [
+        f for f in source_files if f.is_file() and not f.name.startswith(".")
+    ]
+
+    if not source_files:
+        raise FileNotFoundError(f"No source files found in {source_dir}")
 
     prompt = load_system_prompt(round_num)
 
-    # Generate in parallel
-    tasks = [generate_file(desc, round_num, prompt) for desc in desc_files]
+    tasks = [
+        generate_file(f, round_num, prompt, descriptions_dir, source_dir)
+        for f in source_files
+    ]
     results = await asyncio.gather(*tasks)
 
-    # Filter out failures
+    # Filter out failures (if any)
     generated = [r for r in results if r is not None]
 
     # Count genuinely generated files
     newly_generated = len([r for r in generated if r["status"] == "generated"])
     skipped = len([r for r in generated if r["status"] == "skipped"])
 
-    # Save metadata
     meta = {
         "round": round_num,
-        "total": len(desc_files),
+        "total": len(source_files),
         "successful": len(generated),
         "newly_generated": newly_generated,
         "skipped": skipped,
