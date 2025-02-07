@@ -11,6 +11,7 @@ dependencies = [
     "aiofiles>=24.1.0",
     "python-dotenv>=1.0.1",
     "aider-chat>=0.19.3",
+    "aider>=0.2.6",
 ]
 
 [build-system]

@@ -11,20 +11,24 @@ from aider.io import InputOutput
 
 # Initialize OpenAI client
 
-client = openai.AsyncOpenAI()
-reasoning_model = "openai/o3-mini"
-large_output_model = "openai/o3-mini"
+client = openai.AsyncOpenAI(
+    api_key=os.getenv("OPENROUTER_API_KEY"), base_url=os.getenv("OPENROUTER_BASE_URL")
+)
+model_name = "anthropic/claude-3.5-sonnet:beta"
 
 ANALYSIS_PROMPT = """
-Review and compare the code differences below, highlighting API and library usage issues. Original code represents the correct implementation.
+Review and compare the code differences below identifying specific issues in the incorrect code.
+Provide paired examples of legacy and modern code implementations, highlighting improvements in coding practices and dependency management.
 
-Original:
-{original}
-
-Generated:
+<legacy>
 {generated}
+</legacy>
 
-Provide code comparison blocks showing problematic vs correct patterns. Example format:
+<modern>
+{original}
+</modern>
+
+Provide code comparison blocks showing bad vs good code. Example format:
 
 ```
 // Bad Code
@@ -38,17 +42,19 @@ function validateUserProfile(profile: UserProfile): ValidationResult {{
 }}
 ```
 
-Focus on:
-- API misuse
-- Library integration errors
-- Type safety issues
-- Best practice violations
+## Focus Areas:
+- Deprecated library usage
+- Outdated language syntax
+- Only critical issues should be highlighted
 
-Show multiple examples if needed.
+## Evaluation Criteria
+- Relevance: Examples must address common legacy patterns
+- Clarity: Code pairs must be directly comparable
+- Accuracy: Modern alternatives must follow current best practices
 """
 
 
-async def call_llm(system: str, user: str, model: str = reasoning_model) -> str:
+async def call_llm(system: str, user: str, model: str = model_name) -> str:
     system_role_name = "developer" if "o1" in model or "o3" in model else "system"
     for attempt in range(3):
         try:
@@ -79,10 +85,7 @@ async def analyze_code_differences(original: str, generated: str) -> str:
         Markdown formatted analysis of the code differences from LLM
     """
     try:
-        system = (
-            "You are an expert code reviewer focusing on "
-            "design patterns, best practices, and code quality. Output only the bad/good code pairs, no other text."
-        )
+        system = "You are a senior code review specialist analyzing patterns, standards and implementation quality. Evaluate submissions by contrasting problematic and improved code examples only. Skip commentary and peripheral text."
         user = ANALYSIS_PROMPT.format(original=original, generated=generated)
 
         analysis = await call_llm(system=system, user=user)
@@ -153,7 +156,7 @@ async def generate_file_description(content: str, file_path: Path) -> Optional[s
     """
     try:
         system = "You are an expert code analyst and task description writer."
-        user = f"What 3 paragraphs max task description would result in exactly following code if this task was completed by a developer:\n\n{content}"
+        user = f"What 1 paragraph task description would result in exactly following code if this task was completed by a developer? Don't go into technical details, just describe the functionality and libraries used.\n\n<code>\n{content}\n</code>"
 
         return (await call_llm(system=system, user=user)).strip()
 
@@ -219,21 +222,25 @@ async def deduplicate_generated_system_prompt(round_num: int):
     prompt_file = Path(".codescribe") / "prompts" / f"system_{round_num + 1}.md"
     if not prompt_file.exists():
         raise FileNotFoundError(f"System prompt file not found for round {round_num}")
+    deduped_file = prompt_file.with_name(f"system_{round_num + 1}.deduped.md")
+    deduped_file.write_text(prompt_file.read_text())
 
     # Initialize aider components
-    model = Model("gpt-4-turbo")
-    io = InputOutput(yes=True)  # Auto-confirm changes
-    coder = Coder.create(main_model=model, fnames=[str(prompt_file)], io=io)
-
-    # Run deduplication instruction
-    await coder.run(
-        """Review the content and deduplicate similar code examples by:
-        1. Merging similar code blocks showing the same pattern into a single good/bad pair
-        2. Keeping only unique patterns/approaches
-        3. Ensuring the merged examples clearly demonstrate the key differences
-        4. Maintaining all important context and explanations"""
+    model = Model("sonnet")
+    io = InputOutput(yes=True)
+    coder = Coder.create(
+        main_model=model, fnames=[str(deduped_file)], io=io, use_git=False
     )
 
-    # Move the result to deduped file
-    deduped_file = prompt_file.with_name(f"system_{round_num + 1}.deduped.md")
-    prompt_file.rename(deduped_file)
+    # Run deduplication
+    coder.run(
+        """\
+Generate optimized version that:
+- Eliminates duplicate or low-value code blocks by consolidating similar patterns.
+- Focuses solely on high-impact paired examples (bad code first, good code second).
+
+Output format: Only minimal paired code blocks separated by two blank lines, self-documenting and consistently formatted.
+
+Execute immediately.
+"""
+    )

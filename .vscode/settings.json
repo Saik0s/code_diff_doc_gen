@@ -1,7 +1,11 @@
 {
   "files.exclude": {
     "**/__pycache__": true,
+    "**/.specstory": true,
     "**/.vscode/.history": true,
-    "**/env": true
+    "**/env": true,
+    ".venv": true,
+    ".pytest_cache": true,
+    ".aider.tags.cache.v3": true
   }
 }
