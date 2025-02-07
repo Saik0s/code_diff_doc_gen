@@ -5,11 +5,15 @@ from typing import Any, Dict, List, Optional
 import openai
 from loguru import logger
 from pathlib import Path
+from aider.coders import Coder
+from aider.models import Model
+from aider.io import InputOutput
 
 # Initialize OpenAI client
+
 client = openai.AsyncOpenAI()
-reasoning_model = "aion-labs/aion-1.0"
-large_output_model = "mistralai/codestral-2501"
+reasoning_model = "openai/o3-mini"
+large_output_model = "openai/o3-mini"
 
 ANALYSIS_PROMPT = """
 Review and compare the code differences below, highlighting API and library usage issues. Original code represents the correct implementation.
@@ -45,22 +49,23 @@ Show multiple examples if needed.
 
 
 async def call_llm(system: str, user: str, model: str = reasoning_model) -> str:
+    system_role_name = "developer" if "o1" in model or "o3" in model else "system"
     for attempt in range(3):
         try:
             response = await client.chat.completions.create(
                 model=model,
                 messages=[
-                    {"role": "system", "content": system},
+                    {"role": system_role_name, "content": system},
                     {"role": "user", "content": user},
                 ],
             )
-            break
+            return response.choices[0].message.content
         except Exception as e:
+            logger.info(f"Response: {response if response else 'None'}")
             if attempt == 2:  # Last attempt
+                logger.exception(e)
                 raise
             logger.warning(f"Attempt {attempt + 1} failed, retrying...")
-
-    return response.choices[0].message.content
 
 
 async def analyze_code_differences(original: str, generated: str) -> str:
@@ -203,22 +208,32 @@ async def generate_system_prompt_from_analyses(round_num: int) -> str:
 
 
 async def deduplicate_generated_system_prompt(round_num: int):
+    """Deduplicate system prompt using aider.
+
+    Args:
+        round_num: Current generation round number
+
+    Raises:
+        FileNotFoundError: If system prompt file not found
+    """
     prompt_file = Path(".codescribe") / "prompts" / f"system_{round_num + 1}.md"
     if not prompt_file.exists():
         raise FileNotFoundError(f"System prompt file not found for round {round_num}")
 
-    prompt = prompt_file.read_text()
+    # Initialize aider components
+    model = Model("gpt-4-turbo")
+    io = InputOutput(yes=True)  # Auto-confirm changes
+    coder = Coder.create(main_model=model, fnames=[str(prompt_file)], io=io)
 
-    deduped_prompt = await call_llm(
-        system="""You're a code analysis tool focused on removing highly similar code examples while preserving distinct ones.
-Your task is to:
-1. Compare code blocks within the text
-2. Remove only code blocks (both 'bad' and 'good' pairs) that are extremely similar in structure and functionality keeping only one of them
-3. Preserve code blocks that demonstrate unique refactoring approaches or distinct differences
-4. Output the complete and cleaned text without any additional commentary, do not wrap the text in <text> tags""",
-        user=f"Process this file and remove only highly similar/repetitive good/bad code blocks pairs:\n\n<text>\n{prompt}\n</text>",
-        model=large_output_model,
+    # Run deduplication instruction
+    await coder.run(
+        """Review the content and deduplicate similar code examples by:
+        1. Merging similar code blocks showing the same pattern into a single good/bad pair
+        2. Keeping only unique patterns/approaches
+        3. Ensuring the merged examples clearly demonstrate the key differences
+        4. Maintaining all important context and explanations"""
     )
 
-    new_prompt_file = prompt_file.with_name(f"system_{round_num + 1}.deduped.md")
-    new_prompt_file.write_text(deduped_prompt)
+    # Move the result to deduped file
+    deduped_file = prompt_file.with_name(f"system_{round_num + 1}.deduped.md")
+    prompt_file.rename(deduped_file)
