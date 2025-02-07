@@ -17,6 +17,7 @@ class FileDiff:
     generated_path: Path
     analysis: str
     error: str | None = None
+    skipped: bool = False
 
 
 async def _compare_single_file(
@@ -43,15 +44,30 @@ async def _compare_single_file(
                 error=f"Generated file not found: {generated_path}",
             )
 
+        # Check if analysis can be skipped
+        analysis_file = (
+            analysis_dir / original_path.parent / f"{original_path.name}.analysis"
+        )
+        if analysis_file.exists():
+            analysis_mtime = analysis_file.stat().st_mtime
+            original_mtime = original_path.stat().st_mtime
+            generated_mtime = generated_path.stat().st_mtime
+
+            if analysis_mtime > original_mtime and analysis_mtime > generated_mtime:
+                analysis = analysis_file.read_text()
+                return FileDiff(
+                    original_path=original_path,
+                    generated_path=generated_path,
+                    analysis=analysis,
+                    skipped=True,
+                )
+
         original_content = original_path.read_text(encoding="utf-8")
         generated_content = generated_path.read_text(encoding="utf-8")
 
         analysis = await analyze_code_differences(original_content, generated_content)
 
         # Save analysis to individual file
-        analysis_file = (
-            analysis_dir / original_path.parent / f"{original_path.name}.analysis"
-        )
         analysis_file.parent.mkdir(parents=True, exist_ok=True)
         analysis_file.write_text(analysis)
 
@@ -108,6 +124,8 @@ async def compare_files(source_dir: Path, round_num: int) -> None:
     for result in results:
         if result.error:
             logger.warning(result.error)
+        elif result.skipped:
+            logger.info(f"Skipped (up-to-date): {result.original_path}")
         else:
             logger.info(f"Analyzed: {result.original_path}")
 

@@ -9,6 +9,7 @@ dependencies = [
     "openai>=1.0.0",
     "toml>=0.10.2",
     "aiofiles>=24.1.0",
+    "python-dotenv>=1.0.1",
 ]
 
 [build-system]

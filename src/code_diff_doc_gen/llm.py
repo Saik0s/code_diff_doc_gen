@@ -7,11 +7,9 @@ from loguru import logger
 from pathlib import Path
 
 # Initialize OpenAI client
-client = openai.AsyncOpenAI(
-    base_url=os.getenv("TARGET_OPENAI_BASE_URL"),
-    api_key=os.getenv("TARGET_OPENAI_API_KEY"),
-)
-model = os.getenv("TARGET_MODEL_NAME")
+client = openai.AsyncOpenAI()
+reasoning_model = "aion-labs/aion-1.0"
+large_output_model = "mistralai/codestral-2501"
 
 ANALYSIS_PROMPT = """
 Review and compare the code differences below, highlighting API and library usage issues. Original code represents the correct implementation.
@@ -46,14 +44,21 @@ Show multiple examples if needed.
 """
 
 
-async def call_llm(system: str, user: str) -> str:
-    response = await client.chat.completions.create(
-        model=model,
-        messages=[
-            {"role": "system", "content": system},
-            {"role": "user", "content": user},
-        ],
-    )
+async def call_llm(system: str, user: str, model: str = reasoning_model) -> str:
+    for attempt in range(3):
+        try:
+            response = await client.chat.completions.create(
+                model=model,
+                messages=[
+                    {"role": "system", "content": system},
+                    {"role": "user", "content": user},
+                ],
+            )
+            break
+        except Exception as e:
+            if attempt == 2:  # Last attempt
+                raise
+            logger.warning(f"Attempt {attempt + 1} failed, retrying...")
 
     return response.choices[0].message.content
 
@@ -69,24 +74,13 @@ async def analyze_code_differences(original: str, generated: str) -> str:
         Markdown formatted analysis of the code differences from LLM
     """
     try:
-        response = await client.chat.completions.create(
-            model=model,
-            messages=[
-                {
-                    "role": "system",
-                    "content": "You are an expert code reviewer focusing on "
-                    "design patterns, best practices, and code quality. Output only the bad/good code pairs, no other text.",
-                },
-                {
-                    "role": "user",
-                    "content": ANALYSIS_PROMPT.format(
-                        original=original, generated=generated
-                    ),
-                },
-            ],
+        system = (
+            "You are an expert code reviewer focusing on "
+            "design patterns, best practices, and code quality. Output only the bad/good code pairs, no other text."
         )
+        user = ANALYSIS_PROMPT.format(original=original, generated=generated)
 
-        analysis = response.choices[0].message.content
+        analysis = await call_llm(system=system, user=user)
         return analysis
 
     except Exception as e:
@@ -108,25 +102,14 @@ async def generate_code_from_description(
         Generated code as string
     """
     try:
-        messages = [
-            {
-                "role": "system",
-                "content": system_prompt
-                or "You are an expert software developer. "
-                "Generate clean, efficient, and well-documented code. Output only the code, no other text.",
-            },
-            {
-                "role": "user",
-                "content": f"Generate code for the following description:\n\n{description}",
-            },
-        ]
-
-        response = await client.chat.completions.create(
-            model=model,
-            messages=messages,
+        system = (
+            system_prompt
+            or "You are an expert software developer. "
+            "Generate clean, efficient, and well-documented code. Output only the code, no other text."
         )
+        user = f"Generate code for the following description:\n\n{description}"
 
-        return response.choices[0].message.content
+        return await call_llm(system=system, user=user)
 
     except Exception as e:
         logger.exception(e)
@@ -164,22 +147,10 @@ async def generate_file_description(content: str, file_path: Path) -> Optional[s
         Generated description or None if failed
     """
     try:
-        # Generate description
-        response = await client.chat.completions.create(
-            model=model,
-            messages=[
-                {
-                    "role": "system",
-                    "content": "You are an expert code analyst and task description writer.",
-                },
-                {
-                    "role": "user",
-                    "content": f"What 3 paragraphs max task description would result in exactly following code if this task was completed by a developer:\n\n{content}",
-                },
-            ],
-        )
+        system = "You are an expert code analyst and task description writer."
+        user = f"What 3 paragraphs max task description would result in exactly following code if this task was completed by a developer:\n\n{content}"
 
-        return response.choices[0].message.content.strip()
+        return (await call_llm(system=system, user=user)).strip()
 
     except Exception as e:
         logger.exception(e)
@@ -231,31 +202,23 @@ async def generate_system_prompt_from_analyses(round_num: int) -> str:
         raise
 
 
-async def deduplicate_generated_system_prompt(round_num: int) -> str:
-    """Deduplicate the generated system prompt.
+async def deduplicate_generated_system_prompt(round_num: int):
+    prompt_file = Path(".codescribe") / "prompts" / f"system_{round_num + 1}.md"
+    if not prompt_file.exists():
+        raise FileNotFoundError(f"System prompt file not found for round {round_num}")
 
-    Args:
-        round_num: Current generation round number
+    prompt = prompt_file.read_text()
 
-    Returns:
-        Deduplicated system prompt
-    """
-    try:
-        prompt_file = Path(".codescribe") / "prompts" / f"system_{round_num}.md"
-        if not prompt_file.exists():
-            logger.warning(f"System prompt file not found for round {round_num}")
-            return ""
+    deduped_prompt = await call_llm(
+        system="""You're a code analysis tool focused on removing highly similar code examples while preserving distinct ones.
+Your task is to:
+1. Compare code blocks within the text
+2. Remove only code blocks (both 'bad' and 'good' pairs) that are extremely similar in structure and functionality keeping only one of them
+3. Preserve code blocks that demonstrate unique refactoring approaches or distinct differences
+4. Output the complete and cleaned text without any additional commentary, do not wrap the text in <text> tags""",
+        user=f"Process this file and remove only highly similar/repetitive good/bad code blocks pairs:\n\n<text>\n{prompt}\n</text>",
+        model=large_output_model,
+    )
 
-        prompt = prompt_file.read_text()
-
-        # Use LLM to deduplicate content while preserving meaning
-        deduped_prompt = await call_llm(
-            system="You are an expert at removing redundant and duplicate code examples.",
-            user=f"Remove any duplicate or redundant code blocks from the provided text while maintaining all unique information.\n\n<input>\n{prompt}\n</input>",
-        )
-
-        return deduped_prompt
-
-    except Exception as e:
-        logger.exception(e)
-        raise
+    new_prompt_file = prompt_file.with_name(f"system_{round_num + 1}.deduped.md")
+    new_prompt_file.write_text(deduped_prompt)

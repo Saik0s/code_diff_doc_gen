@@ -1,5 +1,9 @@
 """Code generation and analysis tool."""
 
+import dotenv
+
+dotenv.load_dotenv()
+
 import asyncio
 from pathlib import Path
 import typer
