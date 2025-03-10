@@ -14,11 +14,18 @@ from aider.io import InputOutput
 client = openai.AsyncOpenAI(
     api_key=os.getenv("OPENROUTER_API_KEY"), base_url=os.getenv("OPENROUTER_BASE_URL")
 )
-model_name = "anthropic/claude-3.5-sonnet:beta"
+
+model_name = "anthropic/claude-3.7-sonnet:beta"
 
 ANALYSIS_PROMPT = """
-Review and compare the code differences below identifying specific issues in the incorrect code.
-Provide paired examples of legacy and modern code implementations, highlighting improvements in coding practices and dependency management.
+<behavior_rules>
+You have one mission: execute *exactly* what is requested.
+</behavior_rules>
+
+Generate a comparative report of code differences, focusing on practical and self-explanatory examples.
+Illustrate common issues in the provided 'legacy' code by contrasting it with improved 'modern' implementations.
+Each example should be a standalone, paired code block demonstrating a specific coding practice or dependency management improvement.
+The report should clearly highlight conceptual and usage differences between the 'legacy' and 'modern' code, making the correct implementation self-evident through the code itself.
 
 <legacy>
 {generated}
@@ -112,11 +119,16 @@ async def generate_code_from_description(
     try:
         system = (
             system_prompt
-            or "You are an expert software developer. "
-            "Generate clean, efficient, and well-documented code. Output only the code, no other text."
+            or "You are an expert software developer. Generate code that implements *exactly* what is requested in the description. Output ONLY the code with zero extra text."
         )
-        user = f"Generate code for the following description:\n\n{description}"
+        user = f"Generate code for:\n\n{description}\n\nOutput only the code with no additional explanation or text."
 
+        system = f"""
+<behavior_rules>
+You have one mission: execute *exactly* what is requested.
+</behavior_rules>
+{system}
+"""
         return await call_llm(system=system, user=user)
 
     except Exception as e:
@@ -155,9 +167,15 @@ async def generate_file_description(content: str, file_path: Path) -> Optional[s
         Generated description or None if failed
     """
     try:
-        system = "You are an expert code analyst and task description writer."
-        user = f"What 1 paragraph task description would result in exactly following code if this task was completed by a developer? Don't go into technical details, just describe the functionality and libraries used.\n\n<code>\n{content}\n</code>"
+        system = "You are an expert at reverse-engineering code into task descriptions while maintaining implementation intent."
+        user = f"Create a task description that captures the code's purpose and structure. Include: UI components, data flow, dependencies, and core capabilities. Exclude code examples or implementation details.\n\n<code>\n{content}\n</code>"
 
+        system = f"""
+<behavior_rules>
+You have one mission: execute *exactly* what is requested.
+</behavior_rules>
+{system}
+"""
         return (await call_llm(system=system, user=user)).strip()
 
     except Exception as e:
@@ -235,6 +253,10 @@ async def deduplicate_generated_system_prompt(round_num: int):
     # Run deduplication
     coder.run(
         """\
+<behavior_rules>
+You have one mission: execute *exactly* what is requested.
+</behavior_rules>
+
 Generate optimized version that:
 - Eliminates duplicate or low-value code blocks by consolidating similar patterns.
 - Focuses solely on high-impact paired examples (bad code first, good code second).
