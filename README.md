@@ -99,21 +99,6 @@ The tool creates a `.codescribe` directory with the following structure:
     black src tests
     ```
 
-5.  Submit pull requests:
-
-    -   Create a new branch for your changes.
-    -   Make your changes and commit them with clear and concise messages.
-    -   Submit a pull request to the main branch.
-
-## Contributing
-
-We welcome contributions to Code Diff Doc Gen! If you have any ideas or suggestions, please open an issue or submit a pull request.
-
 ## License
 
 This project is licensed under the MIT License.
-
-## Credits
-
--   This project was created by [Your Name].
--   Special thanks to the OpenAI team for providing the powerful language models used in this tool.
