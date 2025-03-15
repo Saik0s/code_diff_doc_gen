@@ -1,11 +1,11 @@
-"""CodeScribe - A tool for code documentation and generation.
+"""CodeDiffDocGen - A tool for code documentation and generation.
 
-Helps understand and document code through automated descriptions,
-tests code generation capabilities, and creates learning examples
-through comparison of human and machine-written code.
+Generates documentation highlighting differences between human
+and AI-written code, creating learning examples to improve
+AI code generation capabilities.
 """
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"
 
 from .main import main
 

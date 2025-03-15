@@ -1,22 +1,23 @@
 """Compare original and generated code files."""
 
-from concurrent.futures import ThreadPoolExecutor, as_completed
-from dataclasses import dataclass
-from datetime import datetime
-from pathlib import Path
-from typing import List
-from loguru import logger
-from .llm import analyze_code_differences
 import asyncio
+from dataclasses import dataclass
+from pathlib import Path
+from typing import List, Optional
+from loguru import logger
+from tqdm.asyncio import tqdm
+
+from .llm import analyze_code_differences
 
 
 @dataclass
 class FileDiff:
     """Represents differences between original and generated files."""
+    
     original_path: Path
     generated_path: Path
     analysis: str
-    error: str | None = None
+    error: Optional[str] = None
     skipped: bool = False
 
 
@@ -26,12 +27,12 @@ async def _compare_single_file(
     analysis_dir: Path,
 ) -> FileDiff:
     """Compare a single pair of files.
-
+    
     Args:
         original_path: Path to original file
         generated_path: Path to generated file
         analysis_dir: Directory to store analysis files
-
+        
     Returns:
         FileDiff containing analysis results
     """
@@ -48,6 +49,7 @@ async def _compare_single_file(
         analysis_file = (
             analysis_dir / original_path.parent / f"{original_path.name}.analysis"
         )
+        
         if analysis_file.exists():
             analysis_mtime = analysis_file.stat().st_mtime
             original_mtime = original_path.stat().st_mtime
@@ -62,12 +64,19 @@ async def _compare_single_file(
                     skipped=True,
                 )
 
+        # Read file contents
         original_content = original_path.read_text(encoding="utf-8")
         generated_content = generated_path.read_text(encoding="utf-8")
 
-        analysis = await analyze_code_differences(original_content, generated_content)
+        # Generate analysis
+        result = await analyze_code_differences(original_content, generated_content)
+        
+        # Format analysis as markdown code blocks
+        analysis = ""
+        for pair in result.pairs:
+            analysis += f"```\n// Bad Code\n{pair.bad_code}\n```\n\n```\n// Good Code\n{pair.good_code}\n```\n\n"
 
-        # Save analysis to individual file
+        # Save analysis to file
         analysis_file.parent.mkdir(parents=True, exist_ok=True)
         analysis_file.write_text(analysis)
 
@@ -77,26 +86,34 @@ async def _compare_single_file(
             analysis=analysis,
         )
     except Exception as e:
-        logger.exception(e)
-        raise
+        logger.error(f"Error comparing {original_path}: {e}")
+        return FileDiff(
+            original_path=original_path,
+            generated_path=generated_path,
+            analysis="",
+            error=str(e),
+        )
 
 
-async def compare_files(source_dir: Path, round_num: int) -> None:
+async def compare_files(source_dir: Path, round_num: int, output_dir: Optional[Path] = None) -> None:
     """Compare original and generated files in parallel and save results.
-
+    
     Args:
         source_dir: Directory containing original source files
         round_num: Generation round number
-
+        output_dir: Custom output directory (default: config.output_dir)
+        
     Raises:
         FileNotFoundError: If required directories/files don't exist
     """
-    generated_dir = Path(f".codescribe/generated/round_{round_num}")
+    workspace_dir = output_dir or config.output_dir
+    generated_dir = workspace_dir / "generated" / f"round_{round_num}"
+    
     if not generated_dir.exists():
         raise FileNotFoundError(f"No generated files found for round {round_num}")
 
     # Create analysis directory for this round
-    analysis_dir = Path(".codescribe/analysis") / f"round_{round_num}"
+    analysis_dir = workspace_dir / "analysis" / f"round_{round_num}"
     analysis_dir.mkdir(parents=True, exist_ok=True)
 
     # Find all source files
@@ -108,7 +125,9 @@ async def compare_files(source_dir: Path, round_num: int) -> None:
     if not source_files:
         raise FileNotFoundError(f"No source files found in {source_dir}")
 
-    # Create tasks for all file comparisons
+    logger.info(f"Comparing {len(source_files)} files...")
+    
+    # Create tasks for file comparisons with progress bar
     tasks = [
         _compare_single_file(
             source_file,
@@ -117,16 +136,15 @@ async def compare_files(source_dir: Path, round_num: int) -> None:
         )
         for source_file in source_files
     ]
+    
+    # Run all comparisons concurrently with progress reporting
+    results = await tqdm.gather(*tasks, desc="Analyzing differences")
 
-    # Run all comparisons concurrently
-    results = await asyncio.gather(*tasks)
+    # Count results by status
+    skipped = len([r for r in results if r.skipped])
+    analyzed = len([r for r in results if not r.skipped and not r.error])
+    errors = len([r for r in results if r.error])
 
-    for result in results:
-        if result.error:
-            logger.warning(result.error)
-        elif result.skipped:
-            logger.info(f"Skipped (up-to-date): {result.original_path}")
-        else:
-            logger.info(f"Analyzed: {result.original_path}")
-
-    logger.info(f"Analysis completed for round {round_num}")
+    logger.info(
+        f"Analysis completed: {analyzed} analyzed, {skipped} skipped, {errors} errors"
+    )

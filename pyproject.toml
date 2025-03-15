@@ -12,6 +12,8 @@ dependencies = [
     "python-dotenv>=1.0.1",
     "aider-chat>=0.19.3",
     "aider>=0.2.6",
+    "instructor>=1.7.4",
+    "anthropic>=0.49.0",
 ]
 
 [build-system]
